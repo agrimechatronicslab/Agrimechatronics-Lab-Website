@@ -420,7 +420,14 @@
       backdrop-filter: none;
       -webkit-backdrop-filter: none;
       background: #0d0f17;
+      /* Collapse the five stacked large-radius shadows into one cheap shadow —
+         repainting the big soft shadows every scroll frame was the remaining
+         source of flicker/tearing on mobile GPUs. */
+      box-shadow: 0 20px 44px rgba(0,0,0,0.45) !important;
+      transition: none !important;
     }
+    .card.active { box-shadow: 0 20px 44px rgba(0,0,0,0.5) !important; }
+    .card::before { display: none !important; }
     .c-img-wrap { flex: none; height: 36%; border-radius: 20px 20px 0 0; }
     .c-img-wrap::before {
       background:

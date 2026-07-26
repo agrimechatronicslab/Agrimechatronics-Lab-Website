@@ -120,11 +120,54 @@
     }));
     dust.frustumCulled = false; scene.add(dust);
 
-    // ── flight path (straight down the centreline, descending) ──
-    const ALT = [[0, 62], [0.16, 36], [0.34, 20], [0.58, 13], [0.8, 10], [0.93, 7], [1, 5]];
-    function altAt(t){ for (let i = 1; i < ALT.length; i++){ if (t <= ALT[i][0]){ const [a,b]=ALT[i-1],[c,d]=ALT[i]; const k=(t-a)/(c-a); return b+(d-b)*(k*k*(3-2*k)); } } return ALT[ALT.length-1][1]; }
-    const WPT = [0.2, 0.45, 0.7, 0.9];
-    const zAt = (t) => C.zStart + (C.zEnd - C.zStart) * t;
+    // ── FPV checkpoint flight: camera visits flags placed around the valley ──
+    // (flag world layout + camera spline are built lazily in frame(), once the
+    //  React-rendered [data-cine-card] flags exist in the DOM.)
+    const smoother = (x) => { x = clamp01(x); return x * x * x * (x * (x * 6 - 15) + 10); };
+    const POSES = [
+      { dx:  2, dy:  5, cam: [ -9, 15, 40 ] },
+      { dx:-30, dy: 22, cam: [ 16,  9, 43 ] },
+      { dx: 34, dy: 42, cam: [  6,-12, 47 ] },
+      { dx: 14, dy:  7, cam: [-10, 17, 39 ] },
+      { dx:-40, dy: 46, cam: [ 10,-10, 48 ] },
+      { dx: 26, dy: 20, cam: [-14, 11, 42 ] },
+      { dx:-12, dy:  5, cam: [  9, 16, 40 ] },
+      { dx: 38, dy: 30, cam: [ -8,  6, 45 ] },
+    ];
+    let flightBuilt = false, flags = [], fPos = [], fMeta = [], curve = null, segMax = 0;
+    let metaBox = null, numEl = null, titleEl = null, tagEl = null, dotsEls = null, barEl = null, lastActive = -1;
+    const _pv = new THREE.Vector3(), _look = new THREE.Vector3(), _tmpA = new THREE.Vector3(), _tmpB = new THREE.Vector3();
+    function buildFlight() {
+      flags = Array.prototype.slice.call(document.querySelectorAll('[data-cine-card]'));
+      const N = flags.length;
+      if (!N) return false;
+      segMax = N - 1;
+      const worldEl = flags[0].parentElement;
+      if (worldEl) { worldEl.style.transform = 'none'; worldEl.style.perspective = 'none'; }
+      const zA = -70, zB = Math.max(C.zEnd + 90, -820);
+      const camPts = [];
+      for (let i = 0; i < N; i++) {
+        const z = zA + (zB - zA) * (N > 1 ? i / (N - 1) : 0);
+        const ps = POSES[i % POSES.length];
+        const fx = centreX(z) + ps.dx, fy = floorY(fx, z) + ps.dy, fz = z;
+        fPos.push(new THREE.Vector3(fx, fy, fz));
+        camPts.push(new THREE.Vector3(fx + ps.cam[0], fy + ps.cam[1], fz + ps.cam[2]));
+        const plate = flags[i].firstElementChild;
+        const h3 = plate ? plate.querySelector('h3') : null;
+        fMeta.push({ n: String(i + 1).padStart(2, '0'), title: h3 ? h3.textContent : '',
+          tag: plate && plate.lastElementChild ? plate.lastElementChild.textContent : '' });
+        flags[i].style.top = '0px'; flags[i].style.left = '0px'; flags[i].style.willChange = 'transform,opacity';
+      }
+      const padded = [camPts[0].clone().add(new THREE.Vector3(0, 7, 62))]
+        .concat(camPts, [camPts[N - 1].clone().add(new THREE.Vector3(0, 4, -72))]);
+      curve = new THREE.CatmullRomCurve3(padded, false, 'catmullrom', 0.5);
+      metaBox = document.querySelector('.cine-meta');
+      if (metaBox) { numEl = metaBox.querySelector('.cine-num'); titleEl = metaBox.querySelector('.cine-title'); tagEl = titleEl ? titleEl.previousElementSibling : null; }
+      dotsEls = document.querySelectorAll('.cine-dots span');
+      barEl = document.querySelector('.cine-bar');
+      flightBuilt = true; window.__cineFlightOwns = true;
+      return true;
+    }
 
     const hud = document.getElementById('cineHud');
     const hAlt = document.getElementById('hAlt'), hSpd = document.getElementById('hSpd'),
@@ -154,58 +197,96 @@
     function frame() {
       requestAnimationFrame(frame);
       const now = performance.now(), dt = Math.min((now - lastT) / 1000, 0.05); lastT = now;
-      if (document.hidden || !inView()) { if (live) { live = false; if (hud) hud.style.opacity = '0'; } return; }
-      if (!live) { live = true; if (hud) hud.style.opacity = '1'; }
+      if (document.hidden || !inView()) { if (live) { live = false; } return; }
+      if (!live) { live = true; }
       elapsed += dt;
 
+      if (!flightBuilt && !buildFlight()) { renderer.render(scene, camera); return; }
+
       const raw = progress();
-      const k = REDUCED ? 40 : 3.2;
+      const k = REDUCED ? 40 : 3.4;
       prevP = smoothP; smoothP += (raw - smoothP) * (1 - Math.exp(-dt * k));
       const t = clamp01(smoothP);
       const vel = dt > 0 ? Math.abs(smoothP - prevP) / dt : 0;
-      speed01 += (clamp01(vel * 3.2) - speed01) * (1 - Math.exp(-dt * 6));
+      speed01 += (clamp01(vel * 3.4) - speed01) * (1 - Math.exp(-dt * 6));
 
-      const z = zAt(t), x = centreX(z), alt = altAt(t), y = floorY(x, z) + alt;
-      const zl = zAt(clamp01(t + C.lookAhead / Math.abs(C.zEnd - C.zStart))), xl = centreX(zl);
-      const ly = floorY(xl, zl) + Math.max(2.5, alt * 0.5);
+      // where along the checkpoint chain are we
+      const segT = t * segMax;
+      const i = Math.max(0, Math.min(segMax - 1, Math.floor(segT)));
+      const frac = segMax > 0 ? segT - i : 0;
+      const sm = smoother(frac);                       // dwell at checkpoints, sprint between
+      const u = (i + 1 + sm) / (segMax + 2);           // camPt i sits at padded index i+1
+      curve.getPoint(clamp01(u), _pv);
 
-      let px = x, py = y;
-      if (!REDUCED) { const s = speed01 * 0.5; px += Math.sin(elapsed * 21.3) * s * 0.5; py += Math.sin(elapsed * 17.7 + 1.3) * s * 0.4; }
-      camera.position.set(px, py, z);
+      // subtle FPV idle drift, strongest while hovering a checkpoint
+      const hover = 1 - clamp01(speed01 * 2.2);
+      if (!REDUCED) {
+        _pv.x += Math.sin(elapsed * 0.9) * (0.5 + hover * 1.3);
+        _pv.y += Math.sin(elapsed * 1.17 + 1.3) * (0.4 + hover * 1.0);
+      }
+      camera.position.copy(_pv);
 
-      const slope = (centreX(z - 6) - centreX(z + 6)) / 12;
-      const wantRoll = THREE.MathUtils.clamp(slope * 1.4, -0.5, 0.5) * (0.3 + speed01 * 0.7);
+      // look from the flag we just left toward the one we're arriving at
+      _look.copy(fPos[i]).lerp(fPos[Math.min(segMax, i + 1)], sm);
+
+      _m.lookAt(camera.position, _look, UP);
+      _qL.setFromRotationMatrix(_m);
+      const wantRoll = THREE.MathUtils.clamp((_look.x - camera.position.x) * 0.012, -0.4, 0.4) * (0.4 + speed01 * 0.9);
       roll += (wantRoll - roll) * (1 - Math.exp(-dt * 4));
-
-      _m.lookAt(camera.position, new THREE.Vector3(xl, ly, zl), UP);
-      _qL.setFromRotationMatrix(_m); _qR.setFromAxisAngle(AXZ, roll); _qW.copy(_qL).multiply(_qR);
-      camera.quaternion.slerp(_qW, 1 - Math.exp(-dt * 9));
-      const fov = 64 + speed01 * 12;
+      _qR.setFromAxisAngle(AXZ, roll); _qW.copy(_qL).multiply(_qR);
+      camera.quaternion.slerp(_qW, 1 - Math.exp(-dt * (9 + speed01 * 6)));
+      const fov = 60 + speed01 * 20;
       if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
 
-      cloud.position.set(Math.round(px / cell) * cell, 0, Math.round(z / cell) * cell);
-      U.uCamXZ.value.set(px, z);
+      // terrain follows the camera
+      cloud.position.set(Math.round(camera.position.x / cell) * cell, 0, Math.round(camera.position.z / cell) * cell);
+      U.uCamXZ.value.set(camera.position.x, camera.position.z);
       U.uSweep.value = REDUCED ? 90 : ((elapsed * 60) % 320) - 40;
-
       dU.uCam.value.copy(camera.position); camera.getWorldDirection(_fwd);
-      dU.uTail.value.copy(_fwd).multiplyScalar(-(1.5 + speed01 * 22));
-      dU.uOpacity.value = 0.16 + speed01 * 0.5;
+      dU.uTail.value.copy(_fwd).multiplyScalar(-(1.5 + speed01 * 26));
+      dU.uOpacity.value = 0.16 + speed01 * 0.55;
 
       renderer.render(scene, camera);
 
-      // telemetry
-      if (hAlt) {
-        const groundSpeed = Math.abs(smoothP - prevP) * Math.abs(C.zEnd - C.zStart) / Math.max(dt, 0.001);
-        const hdg = (THREE.MathUtils.radToDeg(Math.atan2(_fwd.x, -_fwd.z)) + 360) % 360;
-        const next = WPT.find((w) => w > t - 0.005);
-        const nIdx = next != null ? WPT.indexOf(next) + 1 : WPT.length;
-        const dist = next != null ? Math.abs(zAt(next) - z) : 0;
-        hAlt.textContent = alt.toFixed(1) + ' m';
-        hSpd.textContent = Math.min(groundSpeed * 1.9, 999).toFixed(0) + ' kn';
-        hHdg.textContent = hdg.toFixed(0).padStart(3, '0') + '°';
-        hBnk.textContent = THREE.MathUtils.radToDeg(-roll).toFixed(1) + '°';
-        hWpt.textContent = String(nIdx).padStart(2, '0') + ' · ' + dist.toFixed(0) + ' m';
+      // ── project each flag to the screen; show only the active checkpoint ──
+      const W = canvas.clientWidth || innerWidth, H = canvas.clientHeight || innerHeight;
+      camera.updateMatrixWorld();
+      for (let j = 0; j < flags.length; j++) {
+        const el = flags[j];
+        const aff = 1 - Math.min(1, Math.abs(segT - j) / 0.72);   // only the current (and briefly the next) flag
+        if (aff <= 0.004) { if (el.style.visibility !== 'hidden') el.style.visibility = 'hidden'; continue; }
+        _pv.copy(fPos[j]).project(camera);
+        const dist = camera.position.distanceTo(fPos[j]);
+        if (_pv.z >= 1) { el.style.visibility = 'hidden'; continue; }   // behind camera
+        const sx = (_pv.x * 0.5 + 0.5) * W, sy = (-_pv.y * 0.5 + 0.5) * H;
+        const scl0 = Math.max(0.4, Math.min(1.55, 46 / Math.max(dist, 1)));
+        const scl = MOBILE ? Math.min(scl0, 0.95) : scl0;
+        el.style.left = sx.toFixed(1) + 'px';
+        el.style.top = sy.toFixed(1) + 'px';
+        el.style.transform = 'translate(-50%,-38%) scale(' + scl.toFixed(3) + ')';
+        el.style.opacity = (aff * aff).toFixed(3);
+        el.style.visibility = 'visible';
+        el.style.zIndex = '6';
       }
+
+      // active checkpoint → data-active, side rail, bottom-left meta plate
+      const active = Math.max(0, Math.min(segMax, Math.round(segT)));
+      if (active !== lastActive) {
+        if (flags[lastActive]) flags[lastActive].removeAttribute('data-active');
+        if (flags[active]) flags[active].setAttribute('data-active', '1');
+        const m = fMeta[active];
+        if (m) {
+          if (numEl) numEl.textContent = m.n;
+          if (titleEl) titleEl.textContent = m.title;
+          if (tagEl) tagEl.textContent = m.tag;
+        }
+        if (dotsEls) for (let d = 0; d < dotsEls.length; d++) {
+          dotsEls[d].style.background = d === active ? '#6ff2a0' : 'rgba(255,255,255,.22)';
+          dotsEls[d].style.transform = d === active ? 'scale(1.5)' : 'scale(1)';
+        }
+        lastActive = active;
+      }
+      if (barEl) barEl.style.height = (t * 100).toFixed(1) + '%';
     }
     frame();
   }
@@ -328,6 +409,10 @@ nav .pill-scroll::-webkit-scrollbar{display:none}
 }
 @media (max-width: 760px){
   main{padding:104px 16px 0!important}
+  /* Mobile: backdrop-blur over the fixed hero video renders weak/inconsistent,
+     making glass panels look near-invisible. Give them a solid dark fill instead. */
+  .pub-card,.job-card{background:rgba(14,17,24,.9)!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;border-color:rgba(255,255,255,.14)!important}
+  .contact-panel{background:rgba(14,17,24,.9)!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;border-color:rgba(255,255,255,.14)!important}
   main h2{font-size:clamp(31px,9.4vw,46px)!important;letter-spacing:-.5px!important}
   nav{top:10px!important;padding:0 10px!important;gap:6px!important}
   nav > img{height:42px!important}
@@ -473,8 +558,13 @@ main [data-screen-label]{min-width:0;max-width:100%}
               </div>
             </sc-if>
             <sc-if value="{{ isHeroVideo1 }}" hint-placeholder-val="{{ false }}">
-              <div style="width:min(1360px,95vw);aspect-ratio:16/9;border-radius:24px;overflow:hidden;box-shadow:0 26px 60px rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.12);animation:blurIn .6s ease-out both">
-                <video src="assets/hero-video-1.mp4" autoPlay="{{ true }}" muted="{{ true }}" loop="{{ true }}" playsInline="{{ true }}" style="width:100%;height:100%;object-fit:cover;display:block" />
+              <div style="width:min(1360px,95vw);aspect-ratio:16/9;border-radius:24px;overflow:hidden;box-shadow:0 26px 60px rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.12);animation:blurIn .6s ease-out both;background:#04060a;position:relative">
+                <sc-if value="{{ beeIsVideo }}" hint-placeholder-val="{{ true }}">
+                  <video ref="{{ beeVideoR }}" src="{{ beeSrc }}" autoPlay="{{ true }}" muted="{{ true }}" playsInline="{{ true }}" onEnded="{{ onBeeEnded }}" style="width:100%;height:100%;object-fit:cover;display:block" />
+                </sc-if>
+                <sc-if value="{{ beeIsGif }}" hint-placeholder-val="{{ false }}">
+                  <img ref="{{ beeGifR }}" src="{{ beeSrc }}" alt="BeeVision motion analysis" style="width:100%;height:100%;object-fit:cover;display:block" />
+                </sc-if>
               </div>
             </sc-if>
             <sc-if value="{{ isHeroVideo2 }}" hint-placeholder-val="{{ false }}">
@@ -611,28 +701,31 @@ main [data-screen-label]{min-width:0;max-width:100%}
           <div ref="{{ cineWorldR }}" style="position:absolute;top:0;left:0;width:100%;height:100%;transform-style:preserve-3d;will-change:transform;pointer-events:none;z-index:2;transform:rotateX(var(--cw-rx,0deg)) rotateY(var(--cw-ry,0deg))">
             <div style="position:absolute;top:50%;left:50%;width:2px;height:24000px;transform:translate(-50%,-50%) rotateX(90deg);background:linear-gradient(to bottom,rgba(255,255,255,0) 0%,#6ff2a0 50%,rgba(255,255,255,0) 100%);box-shadow:0 0 30px #6ff2a0;opacity:.24"></div>
             <sc-for list="{{ cineProjects }}" as="p" hint-placeholder-count="17">
-              <div data-cine-card data-z="{{ p.z }}" data-align="{{ p.align }}" style="position:absolute;top:50%;left:50%;width:min(88vw,540px);aspect-ratio:16/10;border-radius:10px;transform-origin:center center;overflow:hidden;padding:clamp(24px,3.4vw,40px);box-sizing:border-box;display:flex;flex-direction:column;justify-content:flex-end;background:linear-gradient(135deg,rgba(10,26,20,.46) 0%,rgba(4,10,8,.7) 100%);backdrop-filter:blur(13px) saturate(120%);-webkit-backdrop-filter:blur(13px) saturate(120%);border:1px solid rgba(111,242,160,.2);box-shadow:0 40px 90px rgba(0,0,0,.7),0 0 40px rgba(111,242,160,.06),inset 0 1px 0 rgba(111,242,160,.14);will-change:transform,opacity;visibility:hidden;transform:translate(calc(-50% + {{ p.xo }} + var(--px,0px)), calc(-50% + var(--py,0px))) scale(var(--cs,0.7)) rotateY(var(--ctilt,0deg));opacity:var(--cop,0)">
-                <span style="position:absolute;top:-30px;right:10px;font-family:'Barlow Semi Condensed',sans-serif;font-weight:800;font-size:210px;line-height:1;color:rgba(111,242,160,.05);pointer-events:none;user-select:none">{{ p.n }}</span>
-                <div style="position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,#6ff2a0,transparent);opacity:.7"></div>
-                <div class="cine-scan" style="position:absolute;left:0;right:0;top:0;height:2px;background:linear-gradient(90deg,transparent,rgba(111,242,160,.85),transparent);box-shadow:0 0 14px rgba(111,242,160,.7);pointer-events:none;z-index:3"></div>
-                <span class="cine-lock" style="position:absolute;top:12px;left:12px;width:16px;height:16px;border-top:1.5px solid #6ff2a0;border-left:1.5px solid #6ff2a0;pointer-events:none"></span>
-                <span class="cine-lock" style="position:absolute;top:12px;right:12px;width:16px;height:16px;border-top:1.5px solid #6ff2a0;border-right:1.5px solid #6ff2a0;pointer-events:none"></span>
-                <span class="cine-lock" style="position:absolute;bottom:12px;left:12px;width:16px;height:16px;border-bottom:1.5px solid #6ff2a0;border-left:1.5px solid #6ff2a0;pointer-events:none"></span>
-                <span class="cine-lock" style="position:absolute;bottom:12px;right:12px;width:16px;height:16px;border-bottom:1.5px solid #6ff2a0;border-right:1.5px solid #6ff2a0;pointer-events:none"></span>
-                <div style="position:relative;z-index:2;display:flex;flex-direction:column;gap:10px">
-                  <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;font-family:ui-monospace,monospace;font-size:10.5px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:#6ff2a0">
-                    <span>WPT {{ p.n }} &nbsp;//&nbsp; {{ p.agency }}</span>
-                    <span style="color:rgba(111,242,160,.5);letter-spacing:.14em;flex:none">SITE {{ p.n }}/17</span>
+              <div data-cine-card data-z="{{ p.z }}" data-align="{{ p.align }}" style="position:absolute;top:50%;left:50%;width:min(84vw,300px);transform-origin:center center;display:flex;flex-direction:column;align-items:stretch;will-change:transform,opacity;visibility:hidden;transform:translate(calc(-50% + {{ p.xo }} + var(--px,0px)), calc(-50% + var(--py,0px))) scale(var(--cs,0.7)) rotateY(var(--ctilt,0deg));opacity:var(--cop,0);pointer-events:none">
+                <div style="position:relative;overflow:hidden;border-radius:3px 12px 12px 3px;border-left:3px solid #6ff2a0;background:linear-gradient(135deg,rgba(10,26,20,.62) 0%,rgba(4,10,8,.82) 100%);backdrop-filter:blur(11px) saturate(120%);-webkit-backdrop-filter:blur(11px) saturate(120%);border-top:1px solid rgba(111,242,160,.22);border-right:1px solid rgba(111,242,160,.14);border-bottom:1px solid rgba(111,242,160,.14);box-shadow:0 26px 60px rgba(0,0,0,.66),0 0 30px rgba(111,242,160,.06);padding:15px 18px 16px">
+                  <div class="cine-scan" style="position:absolute;left:0;right:0;top:0;height:2px;background:linear-gradient(90deg,transparent,rgba(111,242,160,.85),transparent);box-shadow:0 0 14px rgba(111,242,160,.7);pointer-events:none;z-index:3"></div>
+                  <span class="cine-lock" style="position:absolute;top:9px;right:9px;width:13px;height:13px;border-top:1.5px solid #6ff2a0;border-right:1.5px solid #6ff2a0;pointer-events:none"></span>
+                  <span class="cine-lock" style="position:absolute;bottom:9px;right:9px;width:13px;height:13px;border-bottom:1.5px solid #6ff2a0;border-right:1.5px solid #6ff2a0;pointer-events:none"></span>
+                  <div style="display:flex;align-items:center;gap:8px;font-family:ui-monospace,monospace;font-size:10px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:#6ff2a0">
+                    <span class="cine-status-dot" style="width:5px;height:5px;border-radius:9999px;background:#6ff2a0;flex:none"></span>
+                    <span>WPT {{ p.n }}</span>
+                    <span style="color:rgba(111,242,160,.4);letter-spacing:.12em">/ {{ p.n }}·17</span>
                   </div>
-                  <h3 style="font-family:'Instrument Serif',serif;font-style:italic;font-size:clamp(30px,3.8vw,46px);line-height:1;color:#fff;margin:0;letter-spacing:-.5px">{{ p.title }}</h3>
-                  <div style="font-size:13px;color:rgba(255,255,255,.58);font-weight:400;letter-spacing:.01em;margin-top:-3px">{{ p.sub }}</div>
-                  <p style="font-size:13.5px;line-height:1.6;color:rgba(255,255,255,.8);font-weight:300;margin:6px 0 0;max-width:94%">{{ p.desc }}</p>
-                  <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:9px">
-                    <sc-for list="{{ p.tags }}" as="t" hint-placeholder-count="3">
-                      <span style="font-family:ui-monospace,monospace;font-size:10px;letter-spacing:.05em;color:rgba(207,255,226,.9);background:rgba(111,242,160,.07);border:1px solid rgba(111,242,160,.22);border-radius:4px;padding:4px 11px">{{ t }}</span>
+                  <h3 style="font-family:'Instrument Serif',serif;font-style:italic;font-size:clamp(20px,2.4vw,26px);line-height:1.06;color:#fff;margin:7px 0 0;letter-spacing:-.3px">{{ p.title }}</h3>
+                  <div style="margin-top:6px;font-size:11px;line-height:1.4;color:rgba(255,255,255,.6);font-weight:300">{{ p.sub }}</div>
+                  <p style="margin:8px 0 0;font-size:11.5px;line-height:1.5;color:rgba(255,255,255,.78);font-weight:300">{{ p.desc }}</p>
+                  <div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:9px">
+                    <sc-for list="{{ p.tags }}" as="t" hint-placeholder-count="2">
+                      <span style="font-family:ui-monospace,monospace;font-size:8.5px;letter-spacing:.04em;color:rgba(207,255,226,.9);background:rgba(111,242,160,.08);border:1px solid rgba(111,242,160,.22);border-radius:3px;padding:2.5px 7px">{{ t }}</span>
                     </sc-for>
                   </div>
+                  <div style="display:flex;align-items:center;gap:8px;margin-top:11px;padding-top:9px;border-top:1px solid rgba(111,242,160,.14);font-family:ui-monospace,monospace;font-size:8.5px;letter-spacing:.16em;text-transform:uppercase;color:rgba(111,242,160,.75)">
+                    <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ p.agency }}</span>
+                    <span style="color:rgba(255,255,255,.3);flex:none">REF·{{ p.n }}</span>
+                  </div>
                 </div>
+                <div style="width:3px;height:clamp(90px,13vh,150px);margin-left:0;background:linear-gradient(to bottom,#6ff2a0,rgba(111,242,160,.08));box-shadow:0 0 12px rgba(111,242,160,.35)"></div>
+                <div style="width:11px;height:11px;margin:-5px 0 0 -4px;border-radius:9999px;background:#6ff2a0;box-shadow:0 0 16px 3px rgba(111,242,160,.6),0 0 0 4px rgba(111,242,160,.12)"></div>
               </div>
             </sc-for>
           </div>
@@ -1324,7 +1417,7 @@ main [data-screen-label]{min-width:0;max-width:100%}
           <p style="font-size:14px;color:rgba(255,255,255,.75);font-weight:300;max-width:520px;margin:12px auto 0">Have questions about research cooperation, open academic positions or academic books consultation? Send us a line.</p>
         </div>
         <div class="contact-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:32px;align-items:start">
-          <div style="background:rgba(255,255,255,.04);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.1);box-shadow:inset 0 1px 1px rgba(255,255,255,.12);border-radius:16px;padding:32px;display:flex;flex-direction:column;gap:24px">
+          <div class="contact-panel" style="background:rgba(255,255,255,.04);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.1);box-shadow:inset 0 1px 1px rgba(255,255,255,.12);border-radius:16px;padding:32px;display:flex;flex-direction:column;gap:24px">
             <h3 style="font-family:'Instrument Serif',serif;font-style:italic;font-size:30px;color:#fff;margin:0">Lab Headquarters</h3>
             <div style="display:flex;flex-direction:column;gap:16px;font-size:14px;font-weight:300">
               <div style="display:flex;gap:12px;align-items:flex-start">
@@ -1351,7 +1444,7 @@ main [data-screen-label]{min-width:0;max-width:100%}
             </div>
           </div>
 
-          <div style="background:rgba(255,255,255,.04);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.1);box-shadow:inset 0 1px 1px rgba(255,255,255,.12);border-radius:16px;padding:32px">
+          <div class="contact-panel" style="background:rgba(255,255,255,.04);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.1);box-shadow:inset 0 1px 1px rgba(255,255,255,.12);border-radius:16px;padding:32px">
             <sc-if value="{{ contactSubmitted }}" hint-placeholder-val="{{ false }}">
               <div style="padding:32px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%">
                 <div style="width:56px;height:56px;border-radius:9999px;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center;margin-bottom:16px;border:1px solid rgba(255,255,255,.2);font-size:24px">✓</div>
@@ -1591,6 +1684,8 @@ class Component extends DCLogic {
       contactForm: { name: "", email: "", subject: "", message: "" },
       flipped: {},
       heroMedia: "logo",
+      beeStep: 0,
+      beeNonce: 0,
       logoCycleIndex: 0,
       heroGalleryIndex: 0,
       featHlIndex: 0,
@@ -1682,6 +1777,33 @@ class Component extends DCLogic {
     };
     this.onLogoLeave = () => { const el = this.logoInner.current; if (el) el.style.transform = "rotateY(0deg) rotateX(0deg)"; };
     this.setHeroMedia = (m) => this.setState({ heroMedia: m });
+    this.beeVideoR = React.createRef();
+    this.beeGifR = React.createRef();
+    this._beeSeq = [
+      { type: "video", src: "assets/bee/bee_splash_screen.mp4" },
+      { type: "gif", src: "assets/bee/1.gif", hold: 17000 },
+      { type: "gif", src: "assets/bee/3.gif", hold: 20000 },
+      { type: "gif", src: "assets/bee/5.gif", hold: 20000 },
+      { type: "video", src: "assets/hero-video-1.mp4" },
+      { type: "gif", src: "assets/bee/4.gif", hold: 20000 },
+    ];
+    this._beePreload = () => {
+      ["assets/bee/5.gif", "assets/bee/4.gif"].forEach((src) => { const im = new Image(); im.src = src; });
+    };
+    this.beeAdvance = () => this.setState((s) => ({ beeStep: (s.beeStep + 1) % this._beeSeq.length, beeNonce: s.beeNonce + 1 }));
+    this._beeSchedule = () => {
+      if (this._beeTimer) { clearTimeout(this._beeTimer); this._beeTimer = null; }
+      // GIF steps now start their hold timer on the img's onLoad (see onBeeGifLoad)
+      // so a slow-loading GIF is shown for its full duration instead of being
+      // skipped by a timer that started before it finished downloading.
+    };
+    this.onBeeGifLoad = () => {
+      if (this.state.heroMedia !== "video1") return;
+      if (this._beeTimer) { clearTimeout(this._beeTimer); this._beeTimer = null; }
+      const step = this._beeSeq[this.state.beeStep];
+      if (step && step.type === "gif") this._beeTimer = setTimeout(this.beeAdvance, step.hold);
+    };
+    this.onBeeGifError = () => { if (this.state.heroMedia === "video1") this.beeAdvance(); };
     this.logoCycleFiles = Array.from({ length: 18 }, (_, i) => "assets/logo-cycle/logo-" + String(i + 1).padStart(2, "0") + ".png");
     this.bgVideoFiles = ["assets/bg-video/bg-combined.mp4"];
     this.onBgVideoEnded = () => {};
@@ -1799,13 +1921,14 @@ class Component extends DCLogic {
     ];
     const aligns = ["left", "right", "center"];
     const SPACING = 1300;
+    const narrow = typeof window !== "undefined" && window.matchMedia("(max-width: 820px)").matches;
     return raw.map((p, i) => {
       const align = aligns[i % 3];
       return Object.assign({}, p, {
         n: String(i + 1).padStart(2, "0"),
         z: -800 - i * SPACING,
         align: align,
-        xo: align === "left" ? "-19vw" : align === "right" ? "19vw" : "0vw",
+        xo: narrow ? "0vw" : align === "left" ? "-19vw" : align === "right" ? "19vw" : "0vw",
       });
     });
   }
@@ -1833,6 +1956,7 @@ class Component extends DCLogic {
     this._cineLastWorld = world;
     this._cineTarget = 0; this._cineCur = 0;
     this._cineMX = 0; this._cineTMX = 0; this._cineMY = 0; this._cineTMY = 0;
+    this._cineNarrow = window.matchMedia("(max-width: 820px)").matches;
     this._cineActive = -1;
     this._cineLastT = null;
 
@@ -1855,6 +1979,7 @@ class Component extends DCLogic {
       if (!this._cineOn) return;
       const liveWorld = this.cineWorldR.current;
       if (!liveWorld) { this._cineRaf = requestAnimationFrame(render); return; }
+      if (window.__cineFlightOwns) { this._cineRaf = requestAnimationFrame(render); return; }
       let worldChanged = false;
       if (liveWorld !== this._cineLastWorld) {
         worldChanged = true;
@@ -1896,6 +2021,7 @@ class Component extends DCLogic {
         const depthFactor = Math.min(1.6, Math.abs(cz) / 2600);
         const px = this._cineMX * 46 * depthFactor;
         const py = this._cineMY * 26 * depthFactor;
+        if (this._cineNarrow) scale = Math.min(scale, 1.0);
         card.style.setProperty("--cs", scale.toFixed(3));
         card.style.setProperty("--ctilt", tilt.toFixed(2) + "deg");
         card.style.setProperty("--cop", op.toFixed(3));
@@ -2287,6 +2413,7 @@ class Component extends DCLogic {
     if (this._onWinMouse) window.removeEventListener("mousemove", this._onWinMouse);
     if (this._logoCycleTimer) clearInterval(this._logoCycleTimer);
     if (this._heroGalleryTimer) clearInterval(this._heroGalleryTimer);
+    if (this._beeTimer) clearTimeout(this._beeTimer);
     if (this._featHlTimer) clearInterval(this._featHlTimer);
     if (this._onResearchKey) window.removeEventListener("keydown", this._onResearchKey);
     if (this._t) clearTimeout(this._t);
@@ -2341,6 +2468,21 @@ class Component extends DCLogic {
   componentDidUpdate(prevProps, prevState) {
     this._apply();
     this._onScroll();
+    if (prevState && (prevState.beeStep !== this.state.beeStep || prevState.heroMedia !== this.state.heroMedia)) {
+      this._beeSchedule();
+      const step = this._beeSeq[this.state.beeStep];
+      if (this.state.heroMedia === "video1" && step && step.type === "video" && this.beeVideoR.current) {
+        const v = this.beeVideoR.current;
+        v.onerror = this.onBeeGifError;
+        try { v.currentTime = 0; v.play(); } catch (e) {}
+      }
+      if (this.state.heroMedia === "video1" && step && step.type === "gif" && this.beeGifR.current) {
+        const img = this.beeGifR.current;
+        img.onload = this.onBeeGifLoad;
+        img.onerror = this.onBeeGifError;
+        if (img.complete) { if (img.naturalWidth > 0) this.onBeeGifLoad(); else this.onBeeGifError(); }
+      }
+    }
     if (prevState) {
       if (this.state.activeTab === "News" && prevState.activeTab !== "News") this._startNewsLoop();
       else if (this.state.activeTab !== "News" && prevState.activeTab === "News") this._stopNewsLoop();
@@ -3382,9 +3524,17 @@ class Component extends DCLogic {
       bgVideoSrc: this.bgVideoFiles[this.state.bgVideoIndex],
       onBgVideoEnded: this.onBgVideoEnded,
       isHeroVideo1: this.state.heroMedia === "video1",
+      beeIsVideo: this._beeSeq[this.state.beeStep].type === "video",
+      beeIsGif: this._beeSeq[this.state.beeStep].type === "gif",
+      beeSrc: this._beeSeq[this.state.beeStep].type === "gif"
+        ? this._beeSeq[this.state.beeStep].src + "?n=" + this.state.beeNonce
+        : this._beeSeq[this.state.beeStep].src,
+      beeVideoR: this.beeVideoR,
+      beeGifR: this.beeGifR,
+      onBeeEnded: this.beeAdvance,
       isHeroVideo2: this.state.heroMedia === "video2",
       onHeroLogo: () => this.setHeroMedia("logo"),
-      onHeroVideo1: () => this.setHeroMedia("video1"),
+      onHeroVideo1: () => { this._beePreload(); this.setState((s) => ({ heroMedia: "video1", beeStep: 0, beeNonce: s.beeNonce + 1 })); },
       onHeroVideo2: () => this.setHeroMedia("video2"),
       heroTabLogoStyle: this._heroTabStyle(this.state.heroMedia === "logo"),
       heroTabGalleryStyle: this._heroTabStyle(this.state.heroMedia === "gallery"),
