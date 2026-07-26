@@ -1,0 +1,1000 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>TheDaily</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700;14..32,800;14..32,900&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --acc-r: 74; --acc-g: 222; --acc-b: 128;
+    --acc: rgb(var(--acc-r), var(--acc-g), var(--acc-b));
+    --acc-rgb: 74, 222, 128;
+    --bg:    #04050a;
+    --text:  #eef1f7;
+    --muted: rgba(238, 241, 247, 0.38);
+    --glass: rgba(255, 255, 255, 0.038);
+    --edge:  rgba(255, 255, 255, 0.085);
+  }
+  *, *::before, *::after {
+    box-sizing: border-box; margin: 0; padding: 0;
+    -webkit-tap-highlight-color: transparent;
+  }
+  html {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: "cv02","cv03","cv04","cv11";
+  }
+  body { background: var(--bg); color: var(--text); overflow-x: hidden; }
+
+  #grain {
+    position: fixed; inset: 0; z-index: 9000;
+    pointer-events: none; opacity: 0.033;
+    background-repeat: repeat; background-size: 256px 256px;
+  }
+
+  .orb {
+    position: fixed; border-radius: 50%;
+    pointer-events: none; z-index: 0;
+    will-change: background, transform;
+  }
+  #orb-a {
+    width: min(90vw, 900px); height: min(90vw, 900px);
+    top: -30%; left: -20%;
+    filter: blur(90px);
+    background: radial-gradient(circle, rgba(var(--acc-rgb), 0.13) 0%, transparent 68%);
+  }
+  #orb-b {
+    width: min(65vw, 650px); height: min(65vw, 650px);
+    bottom: -20%; right: -15%;
+    filter: blur(70px);
+    background: radial-gradient(circle, rgba(var(--acc-rgb), 0.07) 0%, transparent 68%);
+  }
+  #orb-c {
+    width: min(40vw, 400px); height: min(40vw, 400px);
+    top: 40%; left: 50%; transform: translate(-50%, -50%);
+    filter: blur(100px);
+    background: radial-gradient(circle, rgba(var(--acc-rgb), 0.04) 0%, transparent 68%);
+  }
+
+  header {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 700;
+    padding: 1.5rem 2.25rem;
+    display: flex; align-items: center; justify-content: space-between;
+    background: linear-gradient(180deg, rgba(4,5,10,0.9) 0%, transparent 100%);
+    pointer-events: none;
+  }
+  .logo {
+    display: flex; align-items: center; gap: 0.7rem;
+    font-size: 0.98rem; font-weight: 800;
+    letter-spacing: -0.045em; color: #fff;
+    pointer-events: auto; cursor: default; user-select: none;
+  }
+  .logo-node { position: relative; width: 9px; height: 9px; flex-shrink: 0; }
+  .logo-node-core {
+    position: absolute; inset: 0; border-radius: 50%;
+    background: var(--acc);
+    box-shadow: 0 0 14px rgba(var(--acc-rgb), 0.9);
+    will-change: background, box-shadow;
+    transition: background 0.6s ease, box-shadow 0.6s ease;
+  }
+  .logo-node-ring {
+    position: absolute; inset: 0; border-radius: 50%;
+    background: rgba(var(--acc-rgb), 0.4);
+    animation: nodeRing 2.6s ease-out infinite;
+  }
+  @keyframes nodeRing {
+    0%   { transform: scale(1);   opacity: 0.5; }
+    100% { transform: scale(4.2); opacity: 0; }
+  }
+  .hdr-right { display: flex; align-items: center; gap: 1.5rem; }
+  .hdr-date {
+    font-size: 0.67rem; font-weight: 500;
+    color: var(--muted); letter-spacing: 0.07em; text-transform: uppercase;
+  }
+  .hdr-counter {
+    font-size: 0.76rem; font-weight: 700; color: var(--muted);
+    font-variant-numeric: tabular-nums; letter-spacing: 0.01em;
+    display: flex; align-items: center; gap: 0.25rem;
+  }
+  .hdr-counter .cur { color: var(--acc); font-size: 0.9rem; font-weight: 800; will-change: color; }
+
+  #prompt {
+    position: fixed; inset: 0; z-index: 100;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 0.75rem;
+    padding: 0 1.25rem; text-align: center;
+    pointer-events: none; will-change: opacity, transform;
+  }
+  .prompt-eyebrow {
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 0.66rem; font-weight: 700;
+    letter-spacing: 0.24em; text-transform: uppercase;
+    color: var(--acc); will-change: color;
+  }
+  .prompt-title {
+    font-family: 'Instrument Serif', Georgia, serif;
+    font-style: italic; font-weight: 400;
+    font-size: clamp(2.9rem, 10vw, 6.4rem);
+    line-height: 0.92; letter-spacing: -0.01em;
+    color: #fff; text-shadow: 0 6px 44px rgba(0,0,0,0.45);
+  }
+  .prompt-scroll-group {
+    display: flex; flex-direction: column;
+    align-items: center; gap: 1rem;
+    margin-top: 1.55rem;
+  }
+  .prompt-label {
+    font-size: 0.62rem; font-weight: 700;
+    letter-spacing: 0.22em; text-transform: uppercase;
+    background: linear-gradient(90deg,
+      rgba(238,241,247,0.18) 0%,
+      rgba(238,241,247,0.75) 45%,
+      rgba(238,241,247,0.18) 100%);
+    background-size: 300% 100%;
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    animation: labelSweep 3s ease-in-out infinite;
+  }
+  @keyframes labelSweep {
+    0%,100% { background-position: 100% 0; }
+    50%      { background-position: -100% 0; }
+  }
+  .prompt-wheel {
+    width: 22px; height: 36px;
+    border: 1.5px solid rgba(255,255,255,0.18); border-radius: 11px;
+    display: flex; justify-content: center; padding-top: 6px;
+  }
+  .prompt-wheel-dot {
+    width: 3px; height: 6px; border-radius: 2px;
+    background: rgba(255,255,255,0.55);
+    animation: wheelDot 1.7s ease-in-out infinite;
+  }
+  @keyframes wheelDot {
+    0%,100% { transform: translateY(0);   opacity: 1; }
+    55%      { transform: translateY(8px); opacity: 0.15; }
+  }
+
+  #pdots {
+    position: fixed; right: 1.75rem; top: 50%;
+    transform: translateY(-50%); z-index: 600;
+    display: flex; flex-direction: column; align-items: center; gap: 5px;
+    pointer-events: none;
+  }
+  .pd {
+    width: 3px; height: 3px; border-radius: 3px;
+    background: rgba(255,255,255,0.16);
+    transition:
+      height      0.42s cubic-bezier(0.34, 1.56, 0.64, 1),
+      background  0.38s ease,
+      box-shadow  0.38s ease;
+    will-change: height, background;
+  }
+  .pd.on {
+    height: 24px;
+    background: var(--acc);
+    box-shadow: 0 0 10px rgba(var(--acc-rgb), 0.75), 0 0 22px rgba(var(--acc-rgb), 0.28);
+  }
+
+  .scroll-track { position: relative; height: 1200vh; }
+  .sticky-stage {
+    position: sticky; top: 0;
+    height: 100vh; height: 100dvh;
+    overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  #deck {
+    position: relative;
+    width: min(100%, 980px);
+    height: 470px;
+    padding: 0 1.5rem;
+    will-change: transform;
+    contain: layout;
+  }
+
+  .card {
+    position: absolute;
+    inset: 0 1.5rem;
+    border-radius: 28px;
+    overflow: hidden;
+    display: flex;
+    background: var(--glass);
+    backdrop-filter: blur(20px) saturate(140%) brightness(1.02);
+    -webkit-backdrop-filter: blur(20px) saturate(140%) brightness(1.02);
+    border: 1px solid var(--edge);
+    box-shadow:
+      0 0 0 0.5px rgba(255,255,255,0.04),
+      0 4px 8px   rgba(0,0,0,0.10),
+      0 12px 24px rgba(0,0,0,0.18),
+      0 40px 80px rgba(0,0,0,0.30),
+      0 80px 160px rgba(0,0,0,0.20),
+      inset 0  1px 0 rgba(255,255,255,0.13),
+      inset 0 -1px 0 rgba(0,0,0,0.10);
+    will-change: transform;
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
+    transform-origin: center bottom;
+    transition: border-color 0.65s ease, box-shadow 0.65s ease;
+    contain: layout style paint;
+    transform: translate3d(0,0,0);
+  }
+  .card::before {
+    content: '';
+    position: absolute; top: 0; left: 8%; right: 8%; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.28), transparent);
+    z-index: 20; pointer-events: none;
+  }
+  .card.active {
+    border-color: rgba(var(--acc-rgb), 0.24);
+    box-shadow:
+      0 0 0 0.5px rgba(var(--acc-rgb), 0.07),
+      0 4px 8px   rgba(0,0,0,0.10),
+      0 12px 24px rgba(0,0,0,0.18),
+      0 40px 80px rgba(0,0,0,0.30),
+      0 80px 160px rgba(0,0,0,0.20),
+      0 0 90px rgba(var(--acc-rgb), 0.07),
+      inset 0  1px 0 rgba(255,255,255,0.16),
+      inset 0 -1px 0 rgba(0,0,0,0.10);
+  }
+  .c-shim {
+    position: absolute; inset: 0; z-index: 30;
+    pointer-events: none; border-radius: inherit;
+    background: linear-gradient(
+      112deg,
+      transparent     22%,
+      rgba(255,255,255,0.025) 38%,
+      rgba(255,255,255,0.065) 50%,
+      rgba(255,255,255,0.025) 62%,
+      transparent     78%
+    );
+    transform: translateX(-130%) skewX(-8deg);
+  }
+  .card.shimmer .c-shim {
+    animation: shimSweep 0.95s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+  @keyframes shimSweep {
+    0%   { transform: translateX(-130%) skewX(-8deg); }
+    100% { transform: translateX(130%)  skewX(-8deg); }
+  }
+
+  .c-body {
+    flex: 1.25; padding: 2.8rem 2.75rem;
+    display: flex; flex-direction: column;
+    justify-content: space-between; min-width: 0;
+    position: relative; z-index: 1;
+  }
+  .c-img-wrap {
+    flex: 1; position: relative; overflow: hidden;
+    border-radius: 0 26px 26px 0; flex-shrink: 0;
+  }
+  .c-img-wrap img {
+    position: absolute;
+    width: 118%; height: 118%;
+    inset: -9%;
+    object-fit: cover;
+    will-change: transform;
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
+    transform: translate3d(0,0,0);
+  }
+  /* Slideshow crossfade for multi-image cards */
+  .c-img-slide-a,
+  .c-img-slide-b {
+    position: absolute;
+    width: 118%; height: 118%;
+    inset: -9%;
+    object-fit: cover;
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
+  }
+  .c-img-slide-a {
+    animation: ssA 10s ease-in-out infinite;
+    z-index: 2;
+  }
+  .c-img-slide-b {
+    animation: ssB 10s ease-in-out infinite;
+    z-index: 1;
+  }
+  @keyframes ssA {
+    0%, 40%  { opacity: 1; }
+    50%, 90% { opacity: 0; }
+    100%     { opacity: 1; }
+  }
+  @keyframes ssB {
+    0%, 40%  { opacity: 0; }
+    50%, 90% { opacity: 1; }
+    100%     { opacity: 0; }
+  }
+  .c-img-dots {
+    position: absolute; bottom: 14px; right: 14px;
+    display: flex; gap: 5px; z-index: 10; pointer-events: none;
+  }
+  .c-img-dots span {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: rgba(255,255,255,0.35);
+  }
+  .c-img-dots span.d-a { animation: dotA 10s ease-in-out infinite; }
+  .c-img-dots span.d-b { animation: dotB 10s ease-in-out infinite; }
+  @keyframes dotA {
+    0%, 40%  { background: rgba(255,255,255,0.95); transform: scale(1.25); }
+    50%, 90% { background: rgba(255,255,255,0.30); transform: scale(1); }
+    100%     { background: rgba(255,255,255,0.95); transform: scale(1.25); }
+  }
+  @keyframes dotB {
+    0%, 40%  { background: rgba(255,255,255,0.30); transform: scale(1); }
+    50%, 90% { background: rgba(255,255,255,0.95); transform: scale(1.25); }
+    100%     { background: rgba(255,255,255,0.30); transform: scale(1); }
+  }
+
+  .c-img-wrap::before {
+    content: '';
+    position: absolute; inset: 0; z-index: 2; pointer-events: none;
+    background:
+      linear-gradient(to right,  rgba(4,5,10,0.58) 0%, transparent 28%),
+      linear-gradient(to top,    rgba(0,0,0,0.30)  0%, transparent 40%),
+      linear-gradient(to bottom, rgba(0,0,0,0.15)  0%, transparent 30%);
+  }
+  .c-top { display: flex; flex-direction: column; gap: 1rem; }
+  .c-meta { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+  .c-tag {
+    display: inline-flex; align-items: center; gap: 0.38rem;
+    font-size: 0.63rem; font-weight: 700;
+    letter-spacing: 0.11em; text-transform: uppercase;
+    color: var(--acc);
+    padding: 0.28rem 0.65rem 0.28rem 0.5rem;
+    background: rgba(var(--acc-rgb), 0.1);
+    border: 1px solid rgba(var(--acc-rgb), 0.24);
+    border-radius: 100px;
+    will-change: color, background, border-color;
+    transition: color 0.5s ease, background 0.5s ease, border-color 0.5s ease;
+  }
+  .c-tag-dot {
+    width: 4px; height: 4px; border-radius: 50%;
+    background: var(--acc);
+    box-shadow: 0 0 6px rgba(var(--acc-rgb), 0.9);
+    flex-shrink: 0;
+    transition: background 0.5s ease, box-shadow 0.5s ease;
+  }
+  .c-when { font-size: 0.67rem; color: var(--muted); font-weight: 500; letter-spacing: 0.01em; }
+  .c-headline {
+    font-size: clamp(1.45rem, 2.8vw, 2.15rem);
+    font-weight: 800; line-height: 1.13;
+    letter-spacing: -0.045em; color: #fff;
+    text-shadow: 0 2px 24px rgba(0,0,0,0.28);
+  }
+  .c-excerpt {
+    font-size: 0.875rem; line-height: 1.65;
+    color: var(--muted); font-weight: 400; letter-spacing: 0.002em;
+  }
+  .c-foot {
+    display: flex; align-items: center;
+    justify-content: space-between; gap: 1rem;
+  }
+  .c-btn {
+    display: inline-flex; align-items: center; gap: 0.55rem;
+    padding: 0.65rem 1.4rem;
+    border-radius: 100px; font-size: 0.77rem; font-weight: 600;
+    color: #fff; text-decoration: none;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(255,255,255,0.055);
+    min-height: 42px; letter-spacing: 0.01em;
+    position: relative; overflow: hidden;
+    transition: border-color 0.3s ease, color 0.3s ease, box-shadow 0.3s ease;
+  }
+  .c-btn-bg {
+    position: absolute; inset: 0;
+    background: var(--acc);
+    transform: scaleX(0); transform-origin: left center;
+    transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+    z-index: 0;
+    will-change: transform;
+  }
+  .c-btn:hover .c-btn-bg { transform: scaleX(1); }
+  .c-btn:hover { color: #04050a; border-color: var(--acc); box-shadow: 0 0 32px rgba(var(--acc-rgb), 0.3); }
+  .c-btn-label, .c-btn-arrow { position: relative; z-index: 1; }
+  .c-btn-arrow {
+    width: 12px; height: 12px; stroke: currentColor;
+    fill: none; stroke-width: 2.5;
+    stroke-linecap: round; stroke-linejoin: round;
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .c-btn:hover .c-btn-arrow { transform: translateX(4px); }
+  .c-rt {
+    display: flex; align-items: center; gap: 0.35rem;
+    font-size: 0.67rem; color: var(--muted); font-weight: 500;
+    white-space: nowrap; flex-shrink: 0;
+  }
+  .c-rt-icon {
+    width: 11px; height: 11px; stroke: var(--muted);
+    fill: none; stroke-width: 2;
+    stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0;
+  }
+
+  .card:nth-child(1)  { z-index: 1;  }
+  .card:nth-child(2)  { z-index: 2;  }
+  .card:nth-child(3)  { z-index: 3;  }
+  .card:nth-child(4)  { z-index: 4;  }
+  .card:nth-child(5)  { z-index: 5;  }
+  .card:nth-child(6)  { z-index: 6;  }
+  .card:nth-child(7)  { z-index: 7;  }
+  .card:nth-child(8)  { z-index: 8;  }
+  .card:nth-child(9)  { z-index: 9;  }
+  .card:nth-child(10) { z-index: 10; }
+
+  @media (max-width: 900px) {
+    header { padding: 1.1rem 1.4rem; }
+    .hdr-date { display: none; }
+    #pdots { right: 1rem; gap: 4px; }
+    #deck { height: 62dvh; padding: 0 1rem; }
+    .card {
+      inset: 0 1rem;
+      flex-direction: column-reverse;
+      border-radius: 22px;
+      backdrop-filter: blur(14px) saturate(130%);
+      -webkit-backdrop-filter: blur(14px) saturate(130%);
+    }
+    .c-img-wrap { flex: none; height: 36%; border-radius: 20px 20px 0 0; }
+    .c-img-wrap::before {
+      background:
+        linear-gradient(to bottom, rgba(4,5,10,0.38) 0%, transparent 35%),
+        linear-gradient(to top,    rgba(0,0,0,0.28)  0%, transparent 35%);
+    }
+    .c-body { padding: 1.35rem 1.4rem; }
+    .c-headline { font-size: 1.3rem; letter-spacing: -0.035em; }
+    .c-excerpt {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      font-size: 0.82rem;
+    }
+    .c-btn { padding: 0.55rem 1.05rem; font-size: 0.74rem; min-height: 40px; }
+    .c-rt  { display: none; }
+    .prompt-title { font-size: clamp(2.8rem, 15vw, 4.6rem); }
+    .prompt-scroll-group { margin-top: 1.2rem; }
+  }
+  @media (max-width: 420px) {
+    #deck { height: 66dvh; }
+    .c-headline { font-size: 1.15rem; }
+    .c-tag  { font-size: 0.58rem; }
+    .hdr-counter { font-size: 0.7rem; }
+    .hdr-counter .cur { font-size: 0.82rem; }
+    .prompt-eyebrow { font-size: 0.58rem; letter-spacing: 0.2em; }
+    .prompt-title { font-size: clamp(2.6rem, 17vw, 3.6rem); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .logo-node-ring, .prompt-label, .prompt-wheel-dot { animation: none; }
+    .card { transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<div id="grain"></div>
+<div class="orb" id="orb-a"></div>
+<div class="orb" id="orb-b"></div>
+<div class="orb" id="orb-c"></div>
+
+<header>
+  <div></div>
+  <div class="hdr-right">
+    <span class="hdr-date" id="hdr-date"></span>
+    <span class="hdr-counter">
+      <span class="cur" id="cnt-cur">01</span>
+      <span style="opacity:.35">&thinsp;/&thinsp;</span>
+      <span id="cnt-tot">10</span>
+    </span>
+  </div>
+</header>
+
+<div id="prompt">
+  <p class="prompt-eyebrow">// From the Lab</p>
+  <h1 class="prompt-title">News</h1>
+  <div class="prompt-scroll-group">
+    <p class="prompt-label">Scroll to explore</p>
+    <div class="prompt-wheel"><div class="prompt-wheel-dot"></div></div>
+  </div>
+</div>
+
+<div id="pdots"></div>
+
+<main class="scroll-track">
+  <div class="sticky-stage">
+    <div id="deck">
+
+      <article class="card" data-no-par>
+        <div class="c-shim"></div>
+        <div class="c-body">
+          <div class="c-top">
+            <div class="c-meta">
+              <span class="c-tag"><span class="c-tag-dot"></span>IEEE Conference</span>
+              <span class="c-when">Sep 2025 · Chicago, IL</span>
+            </div>
+            <h2 class="c-headline">Research Group Presents at IEEE INTCEC 2025 — 4 Papers &amp; Keynote Speech in Chicago</h2>
+            <p class="c-excerpt">Part of our research group participated in the 5th Interdisciplinary Conference on Electronics and Computer (INTCEC), held September 15–16, 2025 in Chicago, IL. The team delivered four papers and one keynote speech, sharing latest developments on honey bee monitoring, sugar-beet decomposition sensing, and site-specific weed control technologies.</p>
+          </div>
+          <div class="c-foot">
+            <a href="https://lnkd.in/gncWqj7X" target="_blank" rel="noopener" class="c-btn"><div class="c-btn-bg"></div><span class="c-btn-label">View on LinkedIn</span><svg class="c-btn-arrow" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg></a>
+            <span class="c-rt"><svg class="c-rt-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>3 min read</span>
+          </div>
+        </div>
+        <div class="c-img-wrap">
+          <img class="c-img-slide-a" src="uploads/pasted-1782020032294-0.png" alt="Team at INTCEC 2025 banner, Chicago">
+          <img class="c-img-slide-b" src="uploads/pasted-1782020051152-0.png" alt="Weed control robot in field">
+          <div class="c-img-dots"><span class="d-a"></span><span class="d-b"></span></div>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="c-shim"></div>
+        <div class="c-body">
+          <div class="c-top">
+            <div class="c-meta">
+              <span class="c-tag"><span class="c-tag-dot"></span>Grant &amp; Hardware</span>
+              <span class="c-when">Updates</span>
+            </div>
+            <h2 class="c-headline">NDSU Awarded $625K NSF-MRI Grant to Acquire State-of-the-Art 3D Laser Scanning Vibrometer</h2>
+            <p class="c-excerpt">Spanning three colleges and eight university departments, NDSU has secured a $625,244 NSF Major Research Instrumentation (MRI) award to acquire a PSV QTEC 3D Laser Scanning Vibrometer. Led by Assistant Professor Dr. Sulaymon Eshkabilov, this cutting-edge engineering tool allows researchers to capture true 3D non-contact vibratory signals. By measuring frequencies non-invasively, the research team can deeply analyze structural and biological movements—such as determining whether a honey bee hive is calm or under stress.</p>
+          </div>
+          <div class="c-foot">
+            <a href="#" class="c-btn"><div class="c-btn-bg"></div><span class="c-btn-label">Read story</span><svg class="c-btn-arrow" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg></a>
+            <span class="c-rt"><svg class="c-rt-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>5 min read</span>
+          </div>
+        </div>
+        <div class="c-img-wrap"><img src="assets/gallery/honeycomb-vibration.jpg" alt="Honeycomb vibration testbed used for non-contact laser vibrometry"></div>
+      </article>
+
+      <article class="card">
+        <div class="c-shim"></div>
+        <div class="c-body">
+          <div class="c-top">
+            <div class="c-meta">
+              <span class="c-tag"><span class="c-tag-dot"></span>Collaboration</span>
+              <span class="c-when">Updates</span>
+            </div>
+            <h2 class="c-headline">NDSU Professors Visit CANON Virginia Inc. to Forge Advanced R&amp;D Collaboration</h2>
+            <p class="c-excerpt">NDSU professors Dr. Xinhua Jia, Dr. Paulo Flores, and Dr. Sulaymon Eshkabilov recently visited CANON Virginia Inc. in Newport News, VA, to establish a long-term research collaboration with their R&amp;D Group. The team toured advanced facility laboratories, including Materials and Material Processing, Spectroscopy, Imaging Technology, and the Controlled Environment Agriculture Imaging Technology Lab, to align precision academic research with custom industry manufacturing capabilities.</p>
+          </div>
+          <div class="c-foot">
+            <a href="#" class="c-btn"><div class="c-btn-bg"></div><span class="c-btn-label">Read story</span><svg class="c-btn-arrow" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg></a>
+            <span class="c-rt"><svg class="c-rt-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>4 min read</span>
+          </div>
+        </div>
+        <div class="c-img-wrap"><img src="assets/gallery/drone-calibration.jpg" alt="Drone payload calibration in the imaging lab"></div>
+      </article>
+
+      <article class="card">
+        <div class="c-shim"></div>
+        <div class="c-body">
+          <div class="c-top">
+            <div class="c-meta">
+              <span class="c-tag"><span class="c-tag-dot"></span>Summit</span>
+              <span class="c-when">Updates</span>
+            </div>
+            <h2 class="c-headline">NDSU Research Leaders Join National Peers at the 2026 NSF EPSCoR Annual Summit</h2>
+            <p class="c-excerpt">Researchers and academic leaders from North Dakota State University—including Dr. Sulaymon Eshkabilov, Heidi Grunwald, Alexey Leontyev, and Trung Le—joined peers from across the country in New Orleans, Louisiana, for the 2026 NSF EPSCoR Annual Summit. Hosted by the American Association for the Advancement of Science (AAAS), the summit focused on national STEM research strategy, professional development, and building interdisciplinary network connections.</p>
+          </div>
+          <div class="c-foot">
+            <a href="#" class="c-btn"><div class="c-btn-bg"></div><span class="c-btn-label">Read story</span><svg class="c-btn-arrow" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg></a>
+            <span class="c-rt"><svg class="c-rt-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>4 min read</span>
+          </div>
+        </div>
+        <div class="c-img-wrap"><img src="assets/gallery/hive-imaging.jpg" alt="Mobile hive imaging lab equipment used by the research group"></div>
+      </article>
+
+      <article class="card">
+        <div class="c-shim"></div>
+        <div class="c-body">
+          <div class="c-top">
+            <div class="c-meta">
+              <span class="c-tag"><span class="c-tag-dot"></span>Robotics</span>
+              <span class="c-when">Updates</span>
+            </div>
+            <h2 class="c-headline">NDSU Student Team Named Top 5 Finalist in the International Farm Robotics Challenge</h2>
+            <p class="c-excerpt">The NDSU Farm Robotics Challenge student team achieved international recognition by being selected as one of the Top Five Finalists in the International Farm Robotics Challenge. Utilizing their custom-developed SoilXplorer Robot, the student team demonstrated outstanding dedication to innovation. The team extended special thanks to industry partner Mr. Michael Anderson and farmer collaborator Mrs. Noreen Thomas for their practical insights and support.</p>
+          </div>
+          <div class="c-foot">
+            <a href="#" class="c-btn"><div class="c-btn-bg"></div><span class="c-btn-label">Read story</span><svg class="c-btn-arrow" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg></a>
+            <span class="c-rt"><svg class="c-rt-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>3 min read</span>
+          </div>
+        </div>
+        <div class="c-img-wrap"><img src="assets/gallery/rover-parade-1.jpg" alt="Field rover from the Farm Robotics Challenge team"></div>
+      </article>
+
+      <article class="card">
+        <div class="c-shim"></div>
+        <div class="c-body">
+          <div class="c-top">
+            <div class="c-meta">
+              <span class="c-tag"><span class="c-tag-dot"></span>Edge AI &amp; Research</span>
+              <span class="c-when">Updates</span>
+            </div>
+            <h2 class="c-headline">NDSU Professor Receives Prestigious NSF CAREER Award to Decode Honey Bee Communication</h2>
+            <p class="c-excerpt">Dr. Sulaymon Eshkabilov, Assistant Professor of Agricultural and Biosystems Engineering, has earned the highly selective National Science Foundation (NSF) Faculty Early Career Development Program award. This grant supports his pioneering study on modeling and predicting how honey bees respond to environmental fluctuations. By deploying wireless sensor network systems equipped with Edge AI capabilities, the project aims to non-invasively decode natural hive signals to protect pollinator health and global ecosystems.</p>
+          </div>
+          <div class="c-foot">
+            <a href="#" class="c-btn"><div class="c-btn-bg"></div><span class="c-btn-label">Read story</span><svg class="c-btn-arrow" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg></a>
+            <span class="c-rt"><svg class="c-rt-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>6 min read</span>
+          </div>
+        </div>
+        <div class="c-img-wrap"><img src="assets/gallery/hive-inspection.jpg" alt="Honeycomb frame inspection for pollinator health research"></div>
+      </article>
+
+      <article class="card">
+        <div class="c-shim"></div>
+        <div class="c-body">
+          <div class="c-top">
+            <div class="c-meta">
+              <span class="c-tag"><span class="c-tag-dot"></span>Automation</span>
+              <span class="c-when">Updates</span>
+            </div>
+            <h2 class="c-headline">Fully Automated Controlled Environment Agriculture Project Launches at NDSU</h2>
+            <p class="c-excerpt">Launched in September 2024, this project focuses on automating drip irrigation systems for lettuce production by leveraging advanced soil sensors and machine learning algorithms. The project aims to accurately quantify water and nutrient balances to maximize environmental conservation while maintaining optimal plant health. Additionally, the team is designing innovative greenhouse solar modules to maximize solar radiation and generate clean farm electricity.</p>
+          </div>
+          <div class="c-foot">
+            <a href="#" class="c-btn"><div class="c-btn-bg"></div><span class="c-btn-label">Read story</span><svg class="c-btn-arrow" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg></a>
+            <span class="c-rt"><svg class="c-rt-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>5 min read</span>
+          </div>
+        </div>
+        <div class="c-img-wrap"><img src="assets/gallery/hydroponic-monitoring.jpg" alt="Hydroponic CEA monitoring system"></div>
+      </article>
+
+      <article class="card">
+        <div class="c-shim"></div>
+        <div class="c-body">
+          <div class="c-top">
+            <div class="c-meta">
+              <span class="c-tag"><span class="c-tag-dot"></span>Machine Learning</span>
+              <span class="c-when">Updates</span>
+            </div>
+            <h2 class="c-headline">Applying Machine Learning Algorithms to Optimize Lettuce Production and Ensure Food Safety</h2>
+            <p class="c-excerpt">Initiated in August 2024, this proposal aims to apply machine learning algorithms to develop robust classification, estimation, and prediction models for lettuce crops. Key objectives include developing mathematical models to assess plant nutritional and water status from spectral data, alongside evaluating the challenges and sustainable opportunities of utilizing egg-washing wastewater as a natural fertilizer and irrigation source.</p>
+          </div>
+          <div class="c-foot">
+            <a href="#" class="c-btn"><div class="c-btn-bg"></div><span class="c-btn-label">Read story</span><svg class="c-btn-arrow" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg></a>
+            <span class="c-rt"><svg class="c-rt-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>4 min read</span>
+          </div>
+        </div>
+        <div class="c-img-wrap"><img src="assets/gallery/drone-field-mapping.jpg" alt="Multispectral field mapping for crop spectral data collection"></div>
+      </article>
+
+      <article class="card">
+        <div class="c-shim"></div>
+        <div class="c-body">
+          <div class="c-top">
+            <div class="c-meta">
+              <span class="c-tag"><span class="c-tag-dot"></span>Sensors &amp; AI</span>
+              <span class="c-when">Updates</span>
+            </div>
+            <h2 class="c-headline">Fusion of Machine Learning and Electromagnetic Sensors for Real-Time Agricultural Decision-Making</h2>
+            <p class="c-excerpt">This multi-year collaborative initiative brings together personnel from the USDA and NDSU to develop novel, field-ready "DC-to-Light" electromagnetic sensors. By fusing these advanced hardware platforms with specialized Edge AI machine learning theory and secure Information Technology (IT) platforms, the project delivers real-time, data-driven local decisions directly to growers in the field.</p>
+          </div>
+          <div class="c-foot">
+            <a href="#" class="c-btn"><div class="c-btn-bg"></div><span class="c-btn-label">Read story</span><svg class="c-btn-arrow" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg></a>
+            <span class="c-rt"><svg class="c-rt-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>5 min read</span>
+          </div>
+        </div>
+        <div class="c-img-wrap"><img src="assets/gallery/drone-survey-wide.jpg" alt="Aerial crop canopy sensing survey"></div>
+      </article>
+
+      <article class="card">
+        <div class="c-shim"></div>
+        <div class="c-body">
+          <div class="c-top">
+            <div class="c-meta">
+              <span class="c-tag"><span class="c-tag-dot"></span>Socio-Economic</span>
+              <span class="c-when">Updates</span>
+            </div>
+            <h2 class="c-headline">Assessing the Societal and Economic Implications of Clean Energy Tractors for Farming</h2>
+            <p class="c-excerpt">Established in May 2024, this project implements a comprehensive methodology to assess the cultural, social, legal, and economic implications of introducing clean energy tractors to the farming industry. By actively engaging all potential stakeholders—including agricultural producers, engineers, educators, policymakers, and consumers—the strategy aims to smooth the market adoption and structural transition to eco-friendly fleet machinery.</p>
+          </div>
+          <div class="c-foot">
+            <a href="#" class="c-btn"><div class="c-btn-bg"></div><span class="c-btn-label">Read story</span><svg class="c-btn-arrow" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg></a>
+            <span class="c-rt"><svg class="c-rt-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>4 min read</span>
+          </div>
+        </div>
+        <div class="c-img-wrap"><img src="assets/gallery/engine-dyno-1.jpg" alt="Engine dynamometer testing in the powertrain lab"></div>
+      </article>
+
+      <article class="card">
+        <div class="c-shim"></div>
+        <div class="c-body">
+          <div class="c-top">
+            <div class="c-meta">
+              <span class="c-tag"><span class="c-tag-dot"></span>Edge-AI &amp; UGV</span>
+              <span class="c-when">Updates</span>
+            </div>
+            <h2 class="c-headline">Advanced Edge-AI and UGV Systems Offer Eco-Friendly Farm Weed Control Solution</h2>
+            <p class="c-excerpt">Kicking off in March 2024, this precision agriculture project combats weed control by dramatically reducing chemical herbicide usage. An interdisciplinary team of weed scientists, autonomous vehicle engineers, and AI engineers is designing a cooperative Unmanned Ground Vehicle (UGV) system. Using onboard computer vision systems powered by Edge-AI technology, the vehicle precisely identifies and target-sprays weeds locally, maximizing environmental friendliness across North Dakota farming operations.</p>
+          </div>
+          <div class="c-foot">
+            <a href="#" class="c-btn"><div class="c-btn-bg"></div><span class="c-btn-label">Read story</span><svg class="c-btn-arrow" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg></a>
+            <span class="c-rt"><svg class="c-rt-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>6 min read</span>
+          </div>
+        </div>
+        <div class="c-img-wrap"><img src="assets/gallery/rover-parade-2.jpg" alt="Modular crop rover used for autonomous ground vehicle research"></div>
+      </article>
+
+    </div>
+  </div>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+
+  const deck     = document.getElementById('deck');
+  const prompt   = document.getElementById('prompt');
+  const pdots    = document.getElementById('pdots');
+  const cntCur   = document.getElementById('cnt-cur');
+  const cntTot   = document.getElementById('cnt-tot');
+  const hdrDate  = document.getElementById('hdr-date');
+  const logoCore = document.getElementById('logo-core');
+  const orbA     = document.getElementById('orb-a');
+  const orbB     = document.getElementById('orb-b');
+  const orbC     = document.getElementById('orb-c');
+
+  const cards = Array.from(deck.querySelectorAll('.card'));
+  const imgs  = cards.map(c => c.hasAttribute('data-no-par') ? null : c.querySelector('.c-img-wrap img'));
+  const N     = cards.length;
+
+  cntTot.textContent = String(N).padStart(2, '0');
+  hdrDate.textContent = new Date().toLocaleDateString('en-US', {
+    weekday:'short', month:'short', day:'numeric'
+  });
+
+  const dots = Array.from({ length: N }, (_, i) => {
+    const d = document.createElement('div');
+    d.className = 'pd' + (i === 0 ? ' on' : '');
+    pdots.appendChild(d);
+    return d;
+  });
+
+  (function buildGrain() {
+    const S = 256;
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = S;
+    const cx = cv.getContext('2d');
+    const px = cx.createImageData(S, S);
+    for (let i = 0; i < px.data.length; i += 4) {
+      const v = Math.random() * 255 | 0;
+      px.data[i] = px.data[i+1] = px.data[i+2] = v;
+      px.data[i+3] = 255;
+    }
+    cx.putImageData(px, 0, 0);
+    document.getElementById('grain').style.backgroundImage = `url(${cv.toDataURL()})`;
+  })();
+
+  let cardH, gap, tabH, step, winH, maxScroll;
+  function remeasure() {
+    cardH = deck.offsetHeight;
+    gap  = window.innerWidth < 900 ? 13 : 20;
+    tabH = window.innerWidth < 900 ? 20 : 30;
+    step = cardH + gap;
+    winH = window.innerHeight;
+    const track = document.querySelector('.scroll-track');
+    maxScroll = track ? (track.scrollHeight - winH) : 0;
+  }
+  remeasure();
+
+  // Spring physics — tuned for snappier feel
+  const SPRING_K = 0.095; // slightly stiffer
+  const SPRING_D = 0.74; // slightly less damped
+  let targetP = 0, curP = 0, vel = 0;
+
+  function tickSpring() {
+    const force = (targetP - curP) * SPRING_K;
+    vel = vel * SPRING_D + force;
+    curP += vel;
+    if (Math.abs(targetP - curP) < 0.00006 && Math.abs(vel) < 0.00006) {
+      curP = targetP; vel = 0;
+    }
+  }
+
+  let rawVel = 0, lastY = window.scrollY, lastT = performance.now();
+  window.addEventListener('scroll', () => {
+    const y = window.scrollY;
+    const t = performance.now();
+    if (maxScroll <= 0) return;
+    rawVel  = Math.abs(y - lastY) / Math.max(1, t - lastT);
+    targetP = Math.max(0, Math.min(1, y / maxScroll));
+    lastY = y; lastT = t;
+    scheduleLoop();
+  }, { passive: true });
+
+  const palette = [
+    { r:80,  g:200, b:120 }, { r:55,  g:150, b:75  },
+    { r:40,  g:195, b:225 }, { r:155, g:125, b:245 },
+    { r:235, g:95,  b:175 }, { r:235, g:155, b:55  },
+    { r:55,  g:155, b:215 }
+  ];
+  const extracted = new Array(N).fill(null);
+
+  (function sampleImages() {
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = 20;
+    const cx = cv.getContext('2d');
+    imgs.forEach((img, i) => {
+      if (!img) return;
+      function go() {
+        try {
+          cx.drawImage(img, 0, 0, 20, 20);
+          const d = cx.getImageData(0, 0, 20, 20).data;
+          let r=0,g=0,b=0,n=0;
+          for (let p = 0; p < d.length; p += 4) {
+            if (d[p]>10 || d[p+1]>10 || d[p+2]>10) {
+              r+=d[p]; g+=d[p+1]; b+=d[p+2]; n++;
+            }
+          }
+          if (n > 0) {
+            r/=n; g/=n; b/=n;
+            const mx = Math.max(r,g,b);
+            const f  = mx > 0 ? 215/mx : 1;
+            extracted[i] = { r:Math.min(255,r*f|0), g:Math.min(255,g*f|0), b:Math.min(255,b*f|0) };
+          } else {
+            extracted[i] = palette[i % palette.length];
+          }
+        } catch(e) { extracted[i] = palette[i % palette.length]; }
+      }
+      img.complete ? go() : img.addEventListener('load', go, { once: true });
+    });
+  })();
+
+  const live = { r:74, g:222, b:128 };
+  const want = { r:74, g:222, b:128 };
+  let lastR = -1, lastG = -1, lastB = -1;
+
+  function pushAccent(r, g, b) {
+    const rs = r|0, gs = g|0, bs = b|0;
+    if (rs === lastR && gs === lastG && bs === lastB) return;
+    lastR = rs; lastG = gs; lastB = bs;
+    const rgb = `${rs}, ${gs}, ${bs}`;
+    document.documentElement.style.setProperty('--acc-rgb', rgb);
+    document.documentElement.style.setProperty('--acc', `rgb(${rgb})`);
+    if (logoCore) { logoCore.style.background = `rgb(${rgb})`; logoCore.style.boxShadow = `0 0 14px rgba(${rgb}, 0.9)`; }
+    orbA.style.background = `radial-gradient(circle, rgba(${rgb},0.14) 0%, transparent 68%)`;
+    orbB.style.background = `radial-gradient(circle, rgba(${rgb},0.07) 0%, transparent 68%)`;
+    orbC.style.background = `radial-gradient(circle, rgba(${rgb},0.05) 0%, transparent 68%)`;
+  }
+
+  // Dirty-check caches — only write style when value actually changes
+  const prevCardT = new Array(N).fill('');
+  const prevImgT  = new Array(N).fill('');
+  let prevDeckT   = '';
+  let prevPromptO = -1;
+  let prevPromptT = '';
+  let prevOrbP    = -2;
+
+  // RAF idle control — loop only runs while something is moving
+  let rafId = null;
+  function scheduleLoop() {
+    if (!rafId) rafId = requestAnimationFrame(loop);
+  }
+
+  let lastActive = -1;
+  function triggerShimmer(card) {
+    card.classList.remove('shimmer');
+    void card.offsetWidth;
+    card.classList.add('shimmer');
+    card.querySelector('.c-shim').addEventListener(
+      'animationend',
+      () => card.classList.remove('shimmer'),
+      { once: true }
+    );
+  }
+
+  function loop() {
+    rafId = null;
+    tickSpring();
+    rawVel *= 0.80;
+
+    const gIdx   = curP * (N - 1);
+    const floor  = Math.floor(gIdx);
+    const frac   = gIdx - floor;
+    const active = Math.max(0, Math.min(N-1, Math.round(gIdx)));
+
+    // Prompt — reduce threshold from 0.005 to 0.003 for smoother opacity
+    if (curP > 0.003) {
+      const op = Math.max(0, 1 - curP * 18);
+      const tr = `translateY(${(-curP * 80).toFixed(1)}px)`;
+      if (Math.abs(op - prevPromptO) > 0.003) { prompt.style.opacity = op.toFixed(4); prevPromptO = op; }
+      if (tr !== prevPromptT) { prompt.style.transform = tr; prevPromptT = tr; }
+      prompt.style.pointerEvents = 'none';
+    } else if (prevPromptO !== 1) {
+      prompt.style.opacity = '1';
+      prompt.style.transform = 'none';
+      prompt.style.pointerEvents = 'none';
+      prevPromptO = 1; prevPromptT = 'none';
+    }
+
+    dots.forEach((d, i) => d.classList.toggle('on', i === active));
+    cntCur.textContent = String(active + 1).padStart(2, '0');
+
+    if (active !== lastActive) {
+      cards.forEach((c, i) => c.classList.toggle('active', i === active));
+      triggerShimmer(cards[active]);
+      lastActive = active;
+    }
+
+    const ec = extracted[active];
+    if (ec) { want.r = ec.r; want.g = ec.g; want.b = ec.b; }
+    const cSpd = Math.min(0.15, 0.055 + rawVel * 0.32);
+    live.r += (want.r - live.r) * cSpd;
+    live.g += (want.g - live.g) * cSpd;
+    live.b += (want.b - live.b) * cSpd;
+    pushAccent(live.r, live.g, live.b);
+
+    // Orbs — increase threshold slightly for GPU batching
+    if (Math.abs(curP - prevOrbP) > 0.0001) {
+      orbA.style.transform = `translate(${(curP * 10).toFixed(1)}%, ${(curP * 7).toFixed(1)}%)`;
+      orbB.style.transform = `translate(${(-curP * 7).toFixed(1)}%, ${(-curP * 5).toFixed(1)}%)`;
+      prevOrbP = curP;
+    }
+
+    // Card stacking — only write transform when string changes
+    const vh = winH / 2;
+    cards.forEach((card, i) => {
+      let y, sc;
+      if (i <= floor) {
+        y  = i * step; sc = 1.0;
+      } else {
+        const topY = floor * step;
+        if (i === floor + 1) {
+          y  = topY + tabH + frac * (step - tabH);
+          sc = 0.956 + frac * 0.044;
+        } else {
+          const nextY = topY + tabH + frac * (step - tabH);
+          const depth = i - (floor + 1);
+          y  = nextY + depth * tabH;
+          sc = Math.max(0.88, 0.956 - depth * 0.038 + frac * 0.038);
+        }
+      }
+      card._y  = y;
+      card._sc = sc;
+      const ct = `translate3d(0,${y.toFixed(1)}px,0) scale(${sc.toFixed(4)})`;
+      if (ct !== prevCardT[i]) { card.style.transform = ct; prevCardT[i] = ct; }
+    });
+
+    // Camera
+    let camTarget = 0;
+    if (floor < N - 1) {
+      const curCenter  = floor * step + cardH / 2;
+      const nextTop    = floor * step + tabH + frac * (step - tabH);
+      const nextCenter = nextTop + cardH / 2;
+      camTarget = curCenter + frac * (nextCenter - curCenter);
+    } else {
+      camTarget = floor * step + cardH / 2;
+    }
+    const deckOfsY = vh - camTarget;
+    const dt = `translate3d(0,${deckOfsY.toFixed(1)}px,0)`;
+    if (dt !== prevDeckT) { deck.style.transform = dt; prevDeckT = dt; }
+
+    // Image parallax — only write when value changes
+    imgs.forEach((img, i) => {
+      if (!img) return;
+      const screenMidY = deckOfsY + cards[i]._y + cardH / 2;
+      const dist       = screenMidY - vh;
+      const px         = dist * 0.10;
+      const it = `translate3d(0,${px.toFixed(1)}px,0) scale(1.12)`;
+      if (it !== prevImgT[i]) { img.style.transform = it; prevImgT[i] = it; }
+    });
+
+    // Only continue RAF if something is still moving — lower thresholds for smoother settling
+    const colorSettled = Math.abs(live.r - want.r) < 0.3 &&
+                         Math.abs(live.g - want.g) < 0.3 &&
+                         Math.abs(live.b - want.b) < 0.3;
+    const springSettled = Math.abs(targetP - curP) < 0.000025 && Math.abs(vel) < 0.000025;
+    if (!springSettled || !colorSettled || rawVel > 0.00005) {
+      rafId = requestAnimationFrame(loop);
+    }
+  }
+
+  cards[0].classList.add('active');
+  scheduleLoop();
+  window.addEventListener('resize', () => { remeasure(); scheduleLoop(); }, { passive: true });
+});
+</script>
+</body>
+</html>
