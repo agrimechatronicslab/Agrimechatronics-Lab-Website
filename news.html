@@ -280,53 +280,32 @@
     backface-visibility: hidden;
     transform: translate3d(0,0,0);
   }
-  /* Slideshow crossfade for multi-image cards */
-  .c-img-slide-a,
-  .c-img-slide-b {
+  /* Uniform crossfade slideshow — every card uses this */
+  .c-ss { position: absolute; inset: 0; z-index: 1; }
+  .c-ss img {
     position: absolute;
     width: 118%; height: 118%;
     inset: -9%;
     object-fit: cover;
+    opacity: 0;
+    transition: opacity 1.1s ease;
     -webkit-backface-visibility: hidden;
     backface-visibility: hidden;
+    transform: translate3d(0,0,0);
   }
-  .c-img-slide-a {
-    animation: ssA 10s ease-in-out infinite;
-    z-index: 2;
-  }
-  .c-img-slide-b {
-    animation: ssB 10s ease-in-out infinite;
-    z-index: 1;
-  }
-  @keyframes ssA {
-    0%, 40%  { opacity: 1; }
-    50%, 90% { opacity: 0; }
-    100%     { opacity: 1; }
-  }
-  @keyframes ssB {
-    0%, 40%  { opacity: 0; }
-    50%, 90% { opacity: 1; }
-    100%     { opacity: 0; }
-  }
+  .c-ss img.on { opacity: 1; }
   .c-img-dots {
     position: absolute; bottom: 14px; right: 14px;
     display: flex; gap: 5px; z-index: 10; pointer-events: none;
   }
   .c-img-dots span {
     width: 6px; height: 6px; border-radius: 50%;
-    background: rgba(255,255,255,0.35);
+    background: rgba(255,255,255,0.32);
+    transition: background 0.5s ease, transform 0.5s cubic-bezier(0.34,1.56,0.64,1);
   }
-  .c-img-dots span.d-a { animation: dotA 10s ease-in-out infinite; }
-  .c-img-dots span.d-b { animation: dotB 10s ease-in-out infinite; }
-  @keyframes dotA {
-    0%, 40%  { background: rgba(255,255,255,0.95); transform: scale(1.25); }
-    50%, 90% { background: rgba(255,255,255,0.30); transform: scale(1); }
-    100%     { background: rgba(255,255,255,0.95); transform: scale(1.25); }
-  }
-  @keyframes dotB {
-    0%, 40%  { background: rgba(255,255,255,0.30); transform: scale(1); }
-    50%, 90% { background: rgba(255,255,255,0.95); transform: scale(1.25); }
-    100%     { background: rgba(255,255,255,0.30); transform: scale(1); }
+  .c-img-dots span.on-dot {
+    background: rgba(255,255,255,0.95);
+    transform: scale(1.3);
   }
 
   .c-img-wrap::before {
@@ -429,12 +408,18 @@
     .hdr-date { display: none; }
     #pdots { right: 1rem; gap: 4px; }
     #deck { height: 62dvh; padding: 0 1rem; }
+    /* Mobile flicker fix: the giant blurred orbs + per-card live backdrop-filter
+       force a full re-blur of moving layers every scroll frame, which tears on
+       mobile GPUs. Drop the orbs and give cards a solid opaque background so
+       nothing behind them is re-blurred during the sticky-scroll transform. */
+    .orb { display: none !important; }
     .card {
       inset: 0 1rem;
       flex-direction: column-reverse;
       border-radius: 22px;
-      backdrop-filter: blur(14px) saturate(130%);
-      -webkit-backdrop-filter: blur(14px) saturate(130%);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+      background: #0d0f17;
     }
     .c-img-wrap { flex: none; height: 36%; border-radius: 20px 20px 0 0; }
     .c-img-wrap::before {
@@ -505,7 +490,109 @@
   <div class="sticky-stage">
     <div id="deck">
 
-      <article class="card" data-no-par>
+      <article class="card">
+        <div class="c-shim"></div>
+        <div class="c-body">
+          <div class="c-top">
+            <div class="c-meta">
+              <span class="c-tag"><span class="c-tag-dot"></span>Global Collaboration</span>
+              <span class="c-when">2026 · USA &amp; Japan</span>
+            </div>
+            <h2 class="c-headline">Building International Ties: Research Visits to Cornell &amp; Three Japanese Universities</h2>
+            <p class="c-excerpt">Dr. Eshkabilov visited outstanding researchers and graduate assistants at Cornell University in the U.S. and at Nanzan University, University of Tsukuba, and Nagoya University in Japan. At Cornell he met Prof. Neil Mattson, Dr. Lirong Xiang, Prof. Sunny Jung, and Prof. Bryan Danforth, with further discussions at Cornell AgriTech in Geneva. The trip opened new collaborations across controlled environment agriculture, robotics, automation, precision agriculture, and apiculture. He also presented a paper on robot navigation and control modeling and chaired a session at ICRAS 2026 in Kyoto.</p>
+          </div>
+          <div class="c-foot">
+            <a href="#" class="c-btn"><div class="c-btn-bg"></div><span class="c-btn-label">Read story</span><svg class="c-btn-arrow" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg></a>
+            <span class="c-rt"><svg class="c-rt-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>5 min read</span>
+          </div>
+        </div>
+        <div class="c-img-wrap">
+          <div class="c-ss">
+            <img class="on" src="assets/news/icras-group.jpg" alt="ICRAS 2026 conference group photo, Kyoto, Japan">
+            <img src="assets/news/cornell-selfie.jpg" alt="Dr. Eshkabilov with a colleague at Cornell University">
+            <img src="assets/news/cornell-geneva.jpg" alt="Meeting at Barton Laboratory, Cornell AgriTech, Geneva">
+            <img src="assets/news/japan-greenhouse.jpg" alt="Greenhouse visit in Japan">
+            <img src="assets/news/japan-lab.jpg" alt="Research lab visit at a Japanese university">
+            <img src="assets/news/japan-library.jpg" alt="Meeting with host professor in Japan">
+          </div>
+          <div class="c-img-dots"><span class="on-dot"></span><span></span><span></span><span></span><span></span><span></span></div>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="c-shim"></div>
+        <div class="c-body">
+          <div class="c-top">
+            <div class="c-meta">
+              <span class="c-tag"><span class="c-tag-dot"></span>Industry Partnership</span>
+              <span class="c-when">2026 · Newport News, VA</span>
+            </div>
+            <h2 class="c-headline">NDSU Professors Visit CANON Virginia Inc. to Forge Advanced R&amp;D Collaboration</h2>
+            <p class="c-excerpt">Three NDSU professors — Drs. Xinhua Jia, Paulo Flores, and Sulaymon Eshkabilov — visited CANON Virginia Inc. in Newport News, VA to establish a research collaboration with its R&amp;D Group. CANON Virginia specializes in product design &amp; development, testing &amp; certification, precision model making, plastic injection molding, and custom manufacturing. The team toured six laboratories, including Materials &amp; Material Processing, Spectroscopy, Imaging Technology, and the Controlled Environment Agriculture Imaging Technology Lab, holding discussions with CANON researchers and engineers.</p>
+          </div>
+          <div class="c-foot">
+            <a href="#" class="c-btn"><div class="c-btn-bg"></div><span class="c-btn-label">Read story</span><svg class="c-btn-arrow" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg></a>
+            <span class="c-rt"><svg class="c-rt-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>4 min read</span>
+          </div>
+        </div>
+        <div class="c-img-wrap">
+          <div class="c-ss">
+            <img class="on" src="assets/news/canon-group.jpg" alt="NDSU professors at CANON Virginia Inc.">
+            <img src="assets/news/canon-lobby.jpg" alt="CANON Virginia welcome sign for the NDSU visitors">
+            <img src="assets/news/canon-timeline.jpg" alt="CANON Virginia company history wall">
+            <img src="assets/news/canon-logo.jpg" alt="CANON Virginia Inc. lobby">
+          </div>
+          <div class="c-img-dots"><span class="on-dot"></span><span></span><span></span><span></span></div>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="c-shim"></div>
+        <div class="c-body">
+          <div class="c-top">
+            <div class="c-meta">
+              <span class="c-tag"><span class="c-tag-dot"></span>NSF EPSCoR Summit</span>
+              <span class="c-when">2026 · New Orleans, LA</span>
+            </div>
+            <h2 class="c-headline">NDSU Research Leaders Join National Peers at the 2026 NSF EPSCoR Annual Summit</h2>
+            <p class="c-excerpt">Researchers and leaders from North Dakota State University — including Sulaymon Eshkabilov, Heidi Grunwald, Alexey Leontyev, and Trung Le — joined peers from across the country at the 2026 NSF EPSCoR Annual Summit in New Orleans, Louisiana. Hosted by the American Association for the Advancement of Science, the summit brought together researchers, educators, and jurisdiction leaders to discuss collaboration, professional development, NSF engagement, and networking, and to explore ways to strengthen STEM research and education.</p>
+          </div>
+          <div class="c-foot">
+            <a href="#" class="c-btn"><div class="c-btn-bg"></div><span class="c-btn-label">Read story</span><svg class="c-btn-arrow" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg></a>
+            <span class="c-rt"><svg class="c-rt-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>3 min read</span>
+          </div>
+        </div>
+        <div class="c-img-wrap">
+          <div class="c-ss"><img class="on" src="assets/news/epscor-summit.jpg" alt="NDSU team at the 2026 NSF EPSCoR Annual Summit"></div>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="c-shim"></div>
+        <div class="c-body">
+          <div class="c-top">
+            <div class="c-meta">
+              <span class="c-tag"><span class="c-tag-dot"></span>Robotics</span>
+              <span class="c-when">2026 · Farm Robotics Challenge</span>
+            </div>
+            <h2 class="c-headline">NDSU Student Team Named Top 5 Finalist in the International Farm Robotics Challenge</h2>
+            <p class="c-excerpt">The NDSU Farm Robotics Challenge student team was selected as one of the Top Five Finalists in the International Farm Robotics Challenge with their custom-built SoilXplorer Robot — GPS-guided mechanical soil sampling for lab-ready analysis. Go Bison! The team thanks its members for their hard work and dedication, and extends special thanks to industry partner Mr. Michael Anderson and farmer collaborator Mrs. Noreen Thomas for their invaluable support and practical insights.</p>
+          </div>
+          <div class="c-foot">
+            <a href="https://lnkd.in/gT8CzbG8" target="_blank" rel="noopener" class="c-btn"><div class="c-btn-bg"></div><span class="c-btn-label">More info</span><svg class="c-btn-arrow" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg></a>
+            <span class="c-rt"><svg class="c-rt-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>3 min read</span>
+          </div>
+        </div>
+        <div class="c-img-wrap">
+          <div class="c-ss">
+            <img class="on" src="assets/news/soilxplorer-team.jpg" alt="NDSU Farm Robotics Challenge team with the SoilXplorer robot">
+            <img src="assets/news/frc-finalists.jpg" alt="Division I Finalists of the 2026 Farm Robotics Challenge">
+          </div>
+          <div class="c-img-dots"><span class="on-dot"></span><span></span></div>
+        </div>
+      </article>
+
+      <article class="card">
         <div class="c-shim"></div>
         <div class="c-body">
           <div class="c-top">
@@ -522,9 +609,11 @@
           </div>
         </div>
         <div class="c-img-wrap">
-          <img class="c-img-slide-a" src="uploads/pasted-1782020032294-0.png" alt="Team at INTCEC 2025 banner, Chicago">
-          <img class="c-img-slide-b" src="uploads/pasted-1782020051152-0.png" alt="Weed control robot in field">
-          <div class="c-img-dots"><span class="d-a"></span><span class="d-b"></span></div>
+          <div class="c-ss">
+            <img class="on" src="uploads/pasted-1782020032294-0.png" alt="Team at INTCEC 2025 banner, Chicago">
+            <img src="uploads/pasted-1782020051152-0.png" alt="Weed control robot in field">
+          </div>
+          <div class="c-img-dots"><span class="on-dot"></span><span></span></div>
         </div>
       </article>
 
@@ -534,74 +623,23 @@
           <div class="c-top">
             <div class="c-meta">
               <span class="c-tag"><span class="c-tag-dot"></span>Grant &amp; Hardware</span>
-              <span class="c-when">Updates</span>
+              <span class="c-when">Mar 2026 · $625,244</span>
             </div>
             <h2 class="c-headline">NDSU Awarded $625K NSF-MRI Grant to Acquire State-of-the-Art 3D Laser Scanning Vibrometer</h2>
-            <p class="c-excerpt">Spanning three colleges and eight university departments, NDSU has secured a $625,244 NSF Major Research Instrumentation (MRI) award to acquire a PSV QTEC 3D Laser Scanning Vibrometer. Led by Assistant Professor Dr. Sulaymon Eshkabilov, this cutting-edge engineering tool allows researchers to capture true 3D non-contact vibratory signals. By measuring frequencies non-invasively, the research team can deeply analyze structural and biological movements—such as determining whether a honey bee hive is calm or under stress.</p>
+            <p class="c-excerpt">Spanning three colleges and eight university departments, NDSU secured a $625,244 NSF Major Research Instrumentation (MRI) award (No. 2510004) to acquire a PSV QTEC 3D Laser Scanning Vibrometer. Led by Dr. Sulaymon Eshkabilov, this tool captures true 3D non-contact vibratory signals — measuring frequencies non-invasively so the team can analyze structural and biological movements, such as determining whether a honey bee hive is calm or under stress. The award was recognized in a letter from the office of Congresswoman Julie Fedorchak.</p>
           </div>
           <div class="c-foot">
             <a href="#" class="c-btn"><div class="c-btn-bg"></div><span class="c-btn-label">Read story</span><svg class="c-btn-arrow" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg></a>
             <span class="c-rt"><svg class="c-rt-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>5 min read</span>
           </div>
         </div>
-        <div class="c-img-wrap"><img src="assets/gallery/honeycomb-vibration.jpg" alt="Honeycomb vibration testbed used for non-contact laser vibrometry"></div>
-      </article>
-
-      <article class="card">
-        <div class="c-shim"></div>
-        <div class="c-body">
-          <div class="c-top">
-            <div class="c-meta">
-              <span class="c-tag"><span class="c-tag-dot"></span>Collaboration</span>
-              <span class="c-when">Updates</span>
-            </div>
-            <h2 class="c-headline">NDSU Professors Visit CANON Virginia Inc. to Forge Advanced R&amp;D Collaboration</h2>
-            <p class="c-excerpt">NDSU professors Dr. Xinhua Jia, Dr. Paulo Flores, and Dr. Sulaymon Eshkabilov recently visited CANON Virginia Inc. in Newport News, VA, to establish a long-term research collaboration with their R&amp;D Group. The team toured advanced facility laboratories, including Materials and Material Processing, Spectroscopy, Imaging Technology, and the Controlled Environment Agriculture Imaging Technology Lab, to align precision academic research with custom industry manufacturing capabilities.</p>
+        <div class="c-img-wrap">
+          <div class="c-ss">
+            <img class="on" src="assets/news/vibrometer-rig.jpg" alt="Dr. Eshkabilov with the laser vibrometer test rig">
+            <img src="assets/news/nsf-letter.jpg" alt="Congressional letter recognizing the NSF grant award">
           </div>
-          <div class="c-foot">
-            <a href="#" class="c-btn"><div class="c-btn-bg"></div><span class="c-btn-label">Read story</span><svg class="c-btn-arrow" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg></a>
-            <span class="c-rt"><svg class="c-rt-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>4 min read</span>
-          </div>
+          <div class="c-img-dots"><span class="on-dot"></span><span></span></div>
         </div>
-        <div class="c-img-wrap"><img src="assets/gallery/drone-calibration.jpg" alt="Drone payload calibration in the imaging lab"></div>
-      </article>
-
-      <article class="card">
-        <div class="c-shim"></div>
-        <div class="c-body">
-          <div class="c-top">
-            <div class="c-meta">
-              <span class="c-tag"><span class="c-tag-dot"></span>Summit</span>
-              <span class="c-when">Updates</span>
-            </div>
-            <h2 class="c-headline">NDSU Research Leaders Join National Peers at the 2026 NSF EPSCoR Annual Summit</h2>
-            <p class="c-excerpt">Researchers and academic leaders from North Dakota State University—including Dr. Sulaymon Eshkabilov, Heidi Grunwald, Alexey Leontyev, and Trung Le—joined peers from across the country in New Orleans, Louisiana, for the 2026 NSF EPSCoR Annual Summit. Hosted by the American Association for the Advancement of Science (AAAS), the summit focused on national STEM research strategy, professional development, and building interdisciplinary network connections.</p>
-          </div>
-          <div class="c-foot">
-            <a href="#" class="c-btn"><div class="c-btn-bg"></div><span class="c-btn-label">Read story</span><svg class="c-btn-arrow" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg></a>
-            <span class="c-rt"><svg class="c-rt-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>4 min read</span>
-          </div>
-        </div>
-        <div class="c-img-wrap"><img src="assets/gallery/hive-imaging.jpg" alt="Mobile hive imaging lab equipment used by the research group"></div>
-      </article>
-
-      <article class="card">
-        <div class="c-shim"></div>
-        <div class="c-body">
-          <div class="c-top">
-            <div class="c-meta">
-              <span class="c-tag"><span class="c-tag-dot"></span>Robotics</span>
-              <span class="c-when">Updates</span>
-            </div>
-            <h2 class="c-headline">NDSU Student Team Named Top 5 Finalist in the International Farm Robotics Challenge</h2>
-            <p class="c-excerpt">The NDSU Farm Robotics Challenge student team achieved international recognition by being selected as one of the Top Five Finalists in the International Farm Robotics Challenge. Utilizing their custom-developed SoilXplorer Robot, the student team demonstrated outstanding dedication to innovation. The team extended special thanks to industry partner Mr. Michael Anderson and farmer collaborator Mrs. Noreen Thomas for their practical insights and support.</p>
-          </div>
-          <div class="c-foot">
-            <a href="#" class="c-btn"><div class="c-btn-bg"></div><span class="c-btn-label">Read story</span><svg class="c-btn-arrow" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg></a>
-            <span class="c-rt"><svg class="c-rt-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>3 min read</span>
-          </div>
-        </div>
-        <div class="c-img-wrap"><img src="assets/gallery/rover-parade-1.jpg" alt="Field rover from the Farm Robotics Challenge team"></div>
       </article>
 
       <article class="card">
@@ -610,7 +648,7 @@
           <div class="c-top">
             <div class="c-meta">
               <span class="c-tag"><span class="c-tag-dot"></span>Edge AI &amp; Research</span>
-              <span class="c-when">Updates</span>
+              <span class="c-when">NSF CAREER</span>
             </div>
             <h2 class="c-headline">NDSU Professor Receives Prestigious NSF CAREER Award to Decode Honey Bee Communication</h2>
             <p class="c-excerpt">Dr. Sulaymon Eshkabilov, Assistant Professor of Agricultural and Biosystems Engineering, has earned the highly selective National Science Foundation (NSF) Faculty Early Career Development Program award. This grant supports his pioneering study on modeling and predicting how honey bees respond to environmental fluctuations. By deploying wireless sensor network systems equipped with Edge AI capabilities, the project aims to non-invasively decode natural hive signals to protect pollinator health and global ecosystems.</p>
@@ -620,7 +658,9 @@
             <span class="c-rt"><svg class="c-rt-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>6 min read</span>
           </div>
         </div>
-        <div class="c-img-wrap"><img src="assets/gallery/hive-inspection.jpg" alt="Honeycomb frame inspection for pollinator health research"></div>
+        <div class="c-img-wrap">
+          <div class="c-ss"><img class="on" src="assets/gallery/hive-inspection.jpg" alt="Honeycomb frame inspection for pollinator health research"></div>
+        </div>
       </article>
 
       <article class="card">
@@ -629,7 +669,7 @@
           <div class="c-top">
             <div class="c-meta">
               <span class="c-tag"><span class="c-tag-dot"></span>Automation</span>
-              <span class="c-when">Updates</span>
+              <span class="c-when">Sep 2024 · Project</span>
             </div>
             <h2 class="c-headline">Fully Automated Controlled Environment Agriculture Project Launches at NDSU</h2>
             <p class="c-excerpt">Launched in September 2024, this project focuses on automating drip irrigation systems for lettuce production by leveraging advanced soil sensors and machine learning algorithms. The project aims to accurately quantify water and nutrient balances to maximize environmental conservation while maintaining optimal plant health. Additionally, the team is designing innovative greenhouse solar modules to maximize solar radiation and generate clean farm electricity.</p>
@@ -639,7 +679,9 @@
             <span class="c-rt"><svg class="c-rt-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>5 min read</span>
           </div>
         </div>
-        <div class="c-img-wrap"><img src="assets/gallery/hydroponic-monitoring.jpg" alt="Hydroponic CEA monitoring system"></div>
+        <div class="c-img-wrap">
+          <div class="c-ss"><img class="on" src="assets/gallery/hydroponic-monitoring.jpg" alt="Hydroponic CEA monitoring system"></div>
+        </div>
       </article>
 
       <article class="card">
@@ -648,7 +690,7 @@
           <div class="c-top">
             <div class="c-meta">
               <span class="c-tag"><span class="c-tag-dot"></span>Machine Learning</span>
-              <span class="c-when">Updates</span>
+              <span class="c-when">Aug 2024 · Project</span>
             </div>
             <h2 class="c-headline">Applying Machine Learning Algorithms to Optimize Lettuce Production and Ensure Food Safety</h2>
             <p class="c-excerpt">Initiated in August 2024, this proposal aims to apply machine learning algorithms to develop robust classification, estimation, and prediction models for lettuce crops. Key objectives include developing mathematical models to assess plant nutritional and water status from spectral data, alongside evaluating the challenges and sustainable opportunities of utilizing egg-washing wastewater as a natural fertilizer and irrigation source.</p>
@@ -658,7 +700,9 @@
             <span class="c-rt"><svg class="c-rt-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>4 min read</span>
           </div>
         </div>
-        <div class="c-img-wrap"><img src="assets/gallery/drone-field-mapping.jpg" alt="Multispectral field mapping for crop spectral data collection"></div>
+        <div class="c-img-wrap">
+          <div class="c-ss"><img class="on" src="assets/gallery/cea4/09-hsi-rig-lab.png" alt="Hyperspectral imaging rig scanning a lettuce leaf in the lab"></div>
+        </div>
       </article>
 
       <article class="card">
@@ -667,7 +711,7 @@
           <div class="c-top">
             <div class="c-meta">
               <span class="c-tag"><span class="c-tag-dot"></span>Sensors &amp; AI</span>
-              <span class="c-when">Updates</span>
+              <span class="c-when">USDA · NDSU</span>
             </div>
             <h2 class="c-headline">Fusion of Machine Learning and Electromagnetic Sensors for Real-Time Agricultural Decision-Making</h2>
             <p class="c-excerpt">This multi-year collaborative initiative brings together personnel from the USDA and NDSU to develop novel, field-ready "DC-to-Light" electromagnetic sensors. By fusing these advanced hardware platforms with specialized Edge AI machine learning theory and secure Information Technology (IT) platforms, the project delivers real-time, data-driven local decisions directly to growers in the field.</p>
@@ -677,7 +721,9 @@
             <span class="c-rt"><svg class="c-rt-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>5 min read</span>
           </div>
         </div>
-        <div class="c-img-wrap"><img src="assets/gallery/drone-survey-wide.jpg" alt="Aerial crop canopy sensing survey"></div>
+        <div class="c-img-wrap">
+          <div class="c-ss"><img class="on" src="assets/gallery/new/cea-lab-monitoring.jpg" alt="Sensor-fused CEA monitoring station with live data dashboards"></div>
+        </div>
       </article>
 
       <article class="card">
@@ -686,7 +732,7 @@
           <div class="c-top">
             <div class="c-meta">
               <span class="c-tag"><span class="c-tag-dot"></span>Socio-Economic</span>
-              <span class="c-when">Updates</span>
+              <span class="c-when">May 2024 · Project</span>
             </div>
             <h2 class="c-headline">Assessing the Societal and Economic Implications of Clean Energy Tractors for Farming</h2>
             <p class="c-excerpt">Established in May 2024, this project implements a comprehensive methodology to assess the cultural, social, legal, and economic implications of introducing clean energy tractors to the farming industry. By actively engaging all potential stakeholders—including agricultural producers, engineers, educators, policymakers, and consumers—the strategy aims to smooth the market adoption and structural transition to eco-friendly fleet machinery.</p>
@@ -696,7 +742,9 @@
             <span class="c-rt"><svg class="c-rt-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>4 min read</span>
           </div>
         </div>
-        <div class="c-img-wrap"><img src="assets/gallery/engine-dyno-1.jpg" alt="Engine dynamometer testing in the powertrain lab"></div>
+        <div class="c-img-wrap">
+          <div class="c-ss"><img class="on" src="assets/gallery/engine-dyno-1.jpg" alt="Engine dynamometer testing in the powertrain lab"></div>
+        </div>
       </article>
 
       <article class="card">
@@ -705,7 +753,7 @@
           <div class="c-top">
             <div class="c-meta">
               <span class="c-tag"><span class="c-tag-dot"></span>Edge-AI &amp; UGV</span>
-              <span class="c-when">Updates</span>
+              <span class="c-when">Mar 2024 · Project</span>
             </div>
             <h2 class="c-headline">Advanced Edge-AI and UGV Systems Offer Eco-Friendly Farm Weed Control Solution</h2>
             <p class="c-excerpt">Kicking off in March 2024, this precision agriculture project combats weed control by dramatically reducing chemical herbicide usage. An interdisciplinary team of weed scientists, autonomous vehicle engineers, and AI engineers is designing a cooperative Unmanned Ground Vehicle (UGV) system. Using onboard computer vision systems powered by Edge-AI technology, the vehicle precisely identifies and target-sprays weeds locally, maximizing environmental friendliness across North Dakota farming operations.</p>
@@ -715,7 +763,9 @@
             <span class="c-rt"><svg class="c-rt-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>6 min read</span>
           </div>
         </div>
-        <div class="c-img-wrap"><img src="assets/gallery/rover-parade-2.jpg" alt="Modular crop rover used for autonomous ground vehicle research"></div>
+        <div class="c-img-wrap">
+          <div class="c-ss"><img class="on" src="assets/gallery/rover-parade-2.jpg" alt="Modular crop rover used for autonomous ground vehicle research"></div>
+        </div>
       </article>
 
     </div>
@@ -737,7 +787,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const orbC     = document.getElementById('orb-c');
 
   const cards = Array.from(deck.querySelectorAll('.card'));
-  const imgs  = cards.map(c => c.hasAttribute('data-no-par') ? null : c.querySelector('.c-img-wrap img'));
+  const imgs  = cards.map(c => c.querySelector('.c-ss img'));
   const N     = cards.length;
 
   cntTot.textContent = String(N).padStart(2, '0');
@@ -971,16 +1021,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const dt = `translate3d(0,${deckOfsY.toFixed(1)}px,0)`;
     if (dt !== prevDeckT) { deck.style.transform = dt; prevDeckT = dt; }
 
-    // Image parallax — only write when value changes
-    imgs.forEach((img, i) => {
-      if (!img) return;
-      const screenMidY = deckOfsY + cards[i]._y + cardH / 2;
-      const dist       = screenMidY - vh;
-      const px         = dist * 0.10;
-      const it = `translate3d(0,${px.toFixed(1)}px,0) scale(1.12)`;
-      if (it !== prevImgT[i]) { img.style.transform = it; prevImgT[i] = it; }
-    });
-
     // Only continue RAF if something is still moving — lower thresholds for smoother settling
     const colorSettled = Math.abs(live.r - want.r) < 0.3 &&
                          Math.abs(live.g - want.g) < 0.3 &&
@@ -992,6 +1032,23 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   cards[0].classList.add('active');
+
+  // Crossfade slideshow for every multi-image card
+  deck.querySelectorAll('.c-ss').forEach(ss => {
+    const slides = Array.from(ss.querySelectorAll('img'));
+    if (slides.length < 2) return;
+    const dotWrap = ss.parentElement.querySelector('.c-img-dots');
+    const dots = dotWrap ? Array.from(dotWrap.children) : [];
+    let idx = 0;
+    setInterval(() => {
+      slides[idx].classList.remove('on');
+      if (dots[idx]) dots[idx].classList.remove('on-dot');
+      idx = (idx + 1) % slides.length;
+      slides[idx].classList.add('on');
+      if (dots[idx]) dots[idx].classList.add('on-dot');
+    }, 3600);
+  });
+
   scheduleLoop();
   window.addEventListener('resize', () => { remeasure(); scheduleLoop(); }, { passive: true });
 });

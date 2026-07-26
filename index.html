@@ -4,6 +4,215 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script src="./support.js"></script>
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+</script>
+<script type="module">
+/* ═══ Research-stack terrain flythrough ═══════════════════════════════
+   A LiDAR-style point-cloud canyon that flies forward as the visitor
+   scrolls the "Active Research Projects" stack. Fully self-contained:
+   reads scroll off #cineWrap, renders to #cineTerrain, feeds #cineHud.
+   Recoloured to the lab's green. No React coupling. ─────────────────── */
+(function () {
+  const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const MOBILE  = matchMedia('(max-width: 820px), (pointer: coarse)').matches;
+
+  function boot(THREE) {
+    const canvas = document.getElementById('cineTerrain');
+    const wrap   = document.getElementById('cineWrap');
+    if (!canvas || !wrap) return setTimeout(() => boot(THREE), 150);
+
+    let renderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: 'high-performance' });
+    } catch (e) { return; } // no WebGL → cards still read over the dark stage
+
+    const C = {
+      cA: 42, fA: 0.010, cB: 16, fB: 0.027, pB: 1.7,
+      floorBase: -6, floorAmp: 2.2, floorFreq: 0.017,
+      rippleAmp: 0.35, rippleFx: 0.15, rippleFz: 0.21,
+      half: 26, falloff: 52, lip: 9, wall: 66, noiseScale: 0.0055,
+      size: 520, seg: MOBILE ? 200 : 420, fadeStart: 110, fadeEnd: 250,
+      zStart: 150, zEnd: -900, lookAhead: 30,
+    };
+    const g = (n) => (Number.isInteger(n) ? n.toFixed(1) : String(n));
+    const centreX = (z) => Math.sin(z * C.fA) * C.cA + Math.sin(z * C.fB + C.pB) * C.cB;
+    const floorY  = (x, z) => C.floorBase + Math.sin(z * C.floorFreq) * C.floorAmp
+                            + (Math.sin(x * C.rippleFx) + Math.sin(z * C.rippleFz)) * C.rippleAmp;
+
+    const GLSL_FIELD = `
+      float centreX(float z){ return sin(z*${g(C.fA)})*${g(C.cA)} + sin(z*${g(C.fB)}+${g(C.pB)})*${g(C.cB)}; }
+      float floorY(float x,float z){ return ${g(C.floorBase)} + sin(z*${g(C.floorFreq)})*${g(C.floorAmp)}
+        + (sin(x*${g(C.rippleFx)})+sin(z*${g(C.rippleFz)}))*${g(C.rippleAmp)}; }
+      float hash21(vec2 p){ p=fract(p*vec2(123.34,456.21)); p+=dot(p,p+45.32); return fract(p.x*p.y); }
+      float vnoise(vec2 p){ vec2 i=floor(p),f=fract(p); vec2 u=f*f*(3.0-2.0*f);
+        return mix(mix(hash21(i),hash21(i+vec2(1.0,0.0)),u.x),mix(hash21(i+vec2(0.0,1.0)),hash21(i+vec2(1.0,1.0)),u.x),u.y); }
+      float fbm(vec2 p){ float a=0.5,s=0.0; for(int i=0;i<5;i++){ s+=a*vnoise(p); p*=2.03; a*=0.5; } return s; }
+      float terrainY(float x,float z){
+        float m=smoothstep(${g(C.half)},${g(C.half + C.falloff)},abs(x-centreX(z)));
+        float n=pow(max(fbm(vec2(x,z)*${g(C.noiseScale)}),0.0001),1.35);
+        return floorY(x,z)+m*(${g(C.lip)}+n*${g(C.wall)}); }
+    `;
+
+    const COL = { depth: new THREE.Color('#0e3b34'), signal: new THREE.Color('#6ff2a0'), lock: new THREE.Color('#ffcf6b'), void: new THREE.Color('#04060a') };
+
+    renderer.setPixelRatio(Math.min(devicePixelRatio, MOBILE ? 1.5 : 2));
+    renderer.setClearColor(COL.void, 1);
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x04060a, 0.0042);
+    const camera = new THREE.PerspectiveCamera(64, 1, 0.5, 1400);
+
+    // ── point grid, height evaluated on the GPU, snapped to the camera ──
+    const cell = C.size / C.seg;
+    const grid = new THREE.PlaneGeometry(C.size, C.size, C.seg, C.seg);
+    grid.rotateX(-Math.PI / 2); grid.deleteAttribute('normal'); grid.deleteAttribute('uv');
+    const U = {
+      uSize: { value: MOBILE ? 1.5 : 1.2 }, uDpr: { value: renderer.getPixelRatio() },
+      uLow: { value: COL.depth }, uHigh: { value: COL.signal }, uLock: { value: COL.lock },
+      uCamXZ: { value: new THREE.Vector2() }, uSweep: { value: -50 }, uYLo: { value: -8 }, uYHi: { value: 52 },
+    };
+    const cloud = new THREE.Points(grid, new THREE.ShaderMaterial({
+      uniforms: U, transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending, fog: false,
+      vertexShader: `${GLSL_FIELD}
+        uniform float uSize,uDpr,uSweep,uYLo,uYHi; uniform vec2 uCamXZ;
+        varying float vFade,vH,vRing;
+        void main(){
+          vec3 world=(modelMatrix*vec4(position,1.0)).xyz; world.y=terrainY(world.x,world.z);
+          float d=distance(world.xz,uCamXZ);
+          vFade=1.0-smoothstep(${g(C.fadeStart)},${g(C.fadeEnd)},d);
+          vH=clamp((world.y-uYLo)/(uYHi-uYLo),0.0,1.0);
+          float sweep=(d-uSweep)/11.0; vRing=exp(-sweep*sweep);
+          vec4 mv=viewMatrix*vec4(world,1.0); gl_Position=projectionMatrix*mv;
+          gl_PointSize=clamp(uSize*uDpr*(120.0/max(-mv.z,1.0)),1.0,6.0);
+        }`,
+      fragmentShader: `
+        uniform vec3 uLow,uHigh,uLock; varying float vFade,vH,vRing;
+        void main(){
+          vec2 q=gl_PointCoord-0.5; float r=dot(q,q); if(r>0.25) discard;
+          float soft=1.0-smoothstep(0.12,0.25,r);
+          vec3 col=mix(uLow,uHigh,pow(max(vH,0.0001),0.8)); col+=uLock*vRing*1.9;
+          float a=vFade*soft*(0.34+0.66*vH); if(a<0.004) discard;
+          gl_FragColor=vec4(col,a);
+        }`,
+    }));
+    cloud.frustumCulled = false; scene.add(cloud);
+
+    // ── dust streaks that wrap around the camera ──
+    const DUST = MOBILE ? 320 : 760, DBOX = 220;
+    const dp = new Float32Array(DUST * 6), ds = new Float32Array(DUST * 2);
+    for (let i = 0; i < DUST; i++) {
+      const x = Math.random() * DBOX, y = Math.random() * DBOX, z = Math.random() * DBOX;
+      dp.set([x, y, z, x, y, z], i * 6); ds[i * 2] = 0; ds[i * 2 + 1] = 1;
+    }
+    const dgeo = new THREE.BufferGeometry();
+    dgeo.setAttribute('position', new THREE.BufferAttribute(dp, 3));
+    dgeo.setAttribute('aSide', new THREE.BufferAttribute(ds, 1));
+    const dU = { uCam: { value: new THREE.Vector3() }, uTail: { value: new THREE.Vector3() }, uColor: { value: new THREE.Color('#bff4dc') }, uOpacity: { value: 0.4 } };
+    const dust = new THREE.LineSegments(dgeo, new THREE.ShaderMaterial({
+      uniforms: dU, transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending, fog: false,
+      vertexShader: `uniform vec3 uCam,uTail; attribute float aSide; varying float vA;
+        void main(){ vec3 rel=mod(position-uCam+${g(DBOX * 0.5)},${g(DBOX)})-${g(DBOX * 0.5)};
+          vec3 w=uCam+rel+uTail*aSide; float d=length(rel);
+          vA=smoothstep(5.0,26.0,d)*(1.0-smoothstep(70.0,108.0,d))*(1.0-aSide*0.8);
+          gl_Position=projectionMatrix*viewMatrix*vec4(w,1.0); }`,
+      fragmentShader: `uniform vec3 uColor; uniform float uOpacity; varying float vA;
+        void main(){ gl_FragColor=vec4(uColor,vA*uOpacity); }`,
+    }));
+    dust.frustumCulled = false; scene.add(dust);
+
+    // ── flight path (straight down the centreline, descending) ──
+    const ALT = [[0, 62], [0.16, 36], [0.34, 20], [0.58, 13], [0.8, 10], [0.93, 7], [1, 5]];
+    function altAt(t){ for (let i = 1; i < ALT.length; i++){ if (t <= ALT[i][0]){ const [a,b]=ALT[i-1],[c,d]=ALT[i]; const k=(t-a)/(c-a); return b+(d-b)*(k*k*(3-2*k)); } } return ALT[ALT.length-1][1]; }
+    const WPT = [0.2, 0.45, 0.7, 0.9];
+    const zAt = (t) => C.zStart + (C.zEnd - C.zStart) * t;
+
+    const hud = document.getElementById('cineHud');
+    const hAlt = document.getElementById('hAlt'), hSpd = document.getElementById('hSpd'),
+          hHdg = document.getElementById('hHdg'), hBnk = document.getElementById('hBnk'), hWpt = document.getElementById('hWpt');
+
+    const UP = new THREE.Vector3(0, 1, 0), AXZ = new THREE.Vector3(0, 0, 1);
+    const _m = new THREE.Matrix4(), _qL = new THREE.Quaternion(), _qR = new THREE.Quaternion(), _qW = new THREE.Quaternion();
+    const _fwd = new THREE.Vector3();
+    let roll = 0, smoothP = 0, prevP = 0, speed01 = 0, elapsed = 0, lastT = performance.now(), live = false;
+    const clamp01 = (v) => Math.min(1, Math.max(0, v));
+
+    function progress() {
+      const total = wrap.offsetHeight - innerHeight;
+      const top = wrap.getBoundingClientRect().top;
+      return total > 0 ? clamp01(-top / total) : 0;
+    }
+    function inView() {
+      const r = wrap.getBoundingClientRect();
+      return r.bottom > -200 && r.top < innerHeight + 200;
+    }
+    function resize() {
+      const w = canvas.clientWidth || innerWidth, h = canvas.clientHeight || innerHeight;
+      renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+    }
+    resize(); addEventListener('resize', resize, { passive: true });
+
+    function frame() {
+      requestAnimationFrame(frame);
+      const now = performance.now(), dt = Math.min((now - lastT) / 1000, 0.05); lastT = now;
+      if (document.hidden || !inView()) { if (live) { live = false; if (hud) hud.style.opacity = '0'; } return; }
+      if (!live) { live = true; if (hud) hud.style.opacity = '1'; }
+      elapsed += dt;
+
+      const raw = progress();
+      const k = REDUCED ? 40 : 3.2;
+      prevP = smoothP; smoothP += (raw - smoothP) * (1 - Math.exp(-dt * k));
+      const t = clamp01(smoothP);
+      const vel = dt > 0 ? Math.abs(smoothP - prevP) / dt : 0;
+      speed01 += (clamp01(vel * 3.2) - speed01) * (1 - Math.exp(-dt * 6));
+
+      const z = zAt(t), x = centreX(z), alt = altAt(t), y = floorY(x, z) + alt;
+      const zl = zAt(clamp01(t + C.lookAhead / Math.abs(C.zEnd - C.zStart))), xl = centreX(zl);
+      const ly = floorY(xl, zl) + Math.max(2.5, alt * 0.5);
+
+      let px = x, py = y;
+      if (!REDUCED) { const s = speed01 * 0.5; px += Math.sin(elapsed * 21.3) * s * 0.5; py += Math.sin(elapsed * 17.7 + 1.3) * s * 0.4; }
+      camera.position.set(px, py, z);
+
+      const slope = (centreX(z - 6) - centreX(z + 6)) / 12;
+      const wantRoll = THREE.MathUtils.clamp(slope * 1.4, -0.5, 0.5) * (0.3 + speed01 * 0.7);
+      roll += (wantRoll - roll) * (1 - Math.exp(-dt * 4));
+
+      _m.lookAt(camera.position, new THREE.Vector3(xl, ly, zl), UP);
+      _qL.setFromRotationMatrix(_m); _qR.setFromAxisAngle(AXZ, roll); _qW.copy(_qL).multiply(_qR);
+      camera.quaternion.slerp(_qW, 1 - Math.exp(-dt * 9));
+      const fov = 64 + speed01 * 12;
+      if (Math.abs(camera.fov - fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
+
+      cloud.position.set(Math.round(px / cell) * cell, 0, Math.round(z / cell) * cell);
+      U.uCamXZ.value.set(px, z);
+      U.uSweep.value = REDUCED ? 90 : ((elapsed * 60) % 320) - 40;
+
+      dU.uCam.value.copy(camera.position); camera.getWorldDirection(_fwd);
+      dU.uTail.value.copy(_fwd).multiplyScalar(-(1.5 + speed01 * 22));
+      dU.uOpacity.value = 0.16 + speed01 * 0.5;
+
+      renderer.render(scene, camera);
+
+      // telemetry
+      if (hAlt) {
+        const groundSpeed = Math.abs(smoothP - prevP) * Math.abs(C.zEnd - C.zStart) / Math.max(dt, 0.001);
+        const hdg = (THREE.MathUtils.radToDeg(Math.atan2(_fwd.x, -_fwd.z)) + 360) % 360;
+        const next = WPT.find((w) => w > t - 0.005);
+        const nIdx = next != null ? WPT.indexOf(next) + 1 : WPT.length;
+        const dist = next != null ? Math.abs(zAt(next) - z) : 0;
+        hAlt.textContent = alt.toFixed(1) + ' m';
+        hSpd.textContent = Math.min(groundSpeed * 1.9, 999).toFixed(0) + ' kn';
+        hHdg.textContent = hdg.toFixed(0).padStart(3, '0') + '°';
+        hBnk.textContent = THREE.MathUtils.radToDeg(-roll).toFixed(1) + '°';
+        hWpt.textContent = String(nIdx).padStart(2, '0') + ' · ' + dist.toFixed(0) + ' m';
+      }
+    }
+    frame();
+  }
+
+  import('three').then((m) => boot(m)).catch(() => {});
+})();
+</script>
 </head>
 <body>
 <x-dc>
@@ -11,11 +220,20 @@
 <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@300;400;500;600;700&family=Barlow+Semi+Condensed:wght@500;600;700;800&family=Instrument+Serif:ital@0;1&family=Outfit:wght@300;400;600;800;900&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
 <style>
 @keyframes blurIn{0%{filter:blur(10px);opacity:0;transform:translateY(50px)}50%{filter:blur(5px);opacity:.5;transform:translateY(-5px)}100%{filter:blur(0);opacity:1;transform:translateY(0)}}
+@keyframes heroKen{0%{opacity:0;transform:scale(1.08)}12%{opacity:1}100%{opacity:1;transform:scale(1)}}
+@keyframes featProg{0%{width:0}100%{width:100%}}
 @keyframes logoCrossfade{0%{opacity:0;transform:scale(.985)}100%{opacity:1;transform:scale(1)}}
 @keyframes tabIn{0%{filter:blur(10px);opacity:0;transform:translateY(30px)}100%{filter:blur(0);opacity:1;transform:translateY(0)}}
 @keyframes marquee{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
 @keyframes pulseDot{0%,100%{opacity:.35}50%{opacity:1}}
 @keyframes floatY{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+@keyframes cineScan{0%{transform:translateY(-10%);opacity:0}12%{opacity:1}88%{opacity:1}100%{transform:translateY(1000%);opacity:0}}
+@keyframes cineLockBlink{0%,100%{opacity:.55}50%{opacity:1}}
+.cine-lock{opacity:0;transition:opacity .45s ease}
+[data-cine-card][data-active="1"] .cine-lock{opacity:1;animation:cineLockBlink 1.6s ease infinite}
+.cine-scan{opacity:0}
+[data-cine-card][data-active="1"] .cine-scan{animation:cineScan 2.6s cubic-bezier(.4,0,.2,1) infinite}
+[data-cine-card][data-active="1"] .cine-status-dot{box-shadow:0 0 10px #6ff2a0}
 body{margin:0;background:#000;color:#fff;font-family:'Barlow',ui-sans-serif,system-ui,sans-serif;-webkit-font-smoothing:antialiased;overflow-x:hidden}
 *{box-sizing:border-box}
 ::selection{background:rgba(255,255,255,.2);color:#fff}
@@ -47,6 +265,12 @@ nav .pill-scroll::-webkit-scrollbar{display:none}
 @keyframes lbFade{0%{opacity:0}100%{opacity:1}}
 @keyframes lbZoom{0%{opacity:0;transform:scale(.92)}100%{opacity:1;transform:scale(1)}}
 .gal-stage{position:relative}
+.feat-cell:first-child{grid-row:span 2}
+.feat-cell:hover img{transform:scale(1.06)}
+@media (max-width:760px){
+  .feat-grid{grid-template-columns:1fr 1fr!important;grid-auto-rows:150px!important}
+  .feat-cell:first-child{grid-column:span 2;grid-row:span 1!important}
+}
 .gal-track{position:relative;z-index:0;display:flex;align-items:center;gap:28px;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch;scrollbar-width:none;-ms-overflow-style:none;cursor:grab;padding:44px 0}
 .gal-track::-webkit-scrollbar{display:none}
 .gal-card{flex:0 0 var(--gal-card-w,820px);height:var(--gal-card-h,461px);scroll-snap-align:center;position:relative;border-radius:6px;overflow:hidden;cursor:zoom-in;transform-origin:center center;will-change:transform,opacity;transition:opacity .5s ease,filter .5s ease;box-shadow:0 40px 90px -34px rgba(0,0,0,.85)}
@@ -121,8 +345,9 @@ nav .pill-scroll::-webkit-scrollbar{display:none}
   .cine-meta{left:14px!important;bottom:18px!important;gap:10px!important;right:64px}
   .cine-num{font-size:38px!important}
   .cine-title{font-size:17px!important}
-  .cine-dots{right:20px!important;height:150px!important}
-  .cine-bar{right:8px!important;height:150px!important}
+  .cine-dots{right:20px!important;height:210px!important}
+  .cine-bar{right:8px!important;height:210px!important}
+  .ftr-grid{grid-template-columns:1fr!important;gap:36px!important;padding:48px 22px 32px!important}
   .rnav{top:64px!important;flex-wrap:nowrap!important;justify-content:flex-start!important;overflow-x:auto;padding:8px 2px!important;scrollbar-width:none;-webkit-overflow-scrolling:touch}
   .rnav::-webkit-scrollbar{display:none}
   .rnav button{flex:none;white-space:nowrap}
@@ -221,21 +446,48 @@ main [data-screen-label]{min-width:0;max-width:100%}
 
           <div class="hero-tabs" style="display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:20px;padding:6px;border-radius:9999px;background:rgba(255,255,255,.04);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,.1)">
             <button onClick="{{ onHeroLogo }}" style="{{ heroTabLogoStyle }}" style-hover="background:#ffffff;color:#000000">Overview</button>
-            <button onClick="{{ onHeroVideo1 }}" style="{{ heroTabVideo1Style }}" style-hover="background:#ffffff;color:#000000">In the Field</button>
-            <button onClick="{{ onHeroVideo2 }}" style="{{ heroTabVideo2Style }}" style-hover="background:#ffffff;color:#000000">In the Lab</button>
+            <button onClick="{{ onHeroGallery }}" style="{{ heroTabGalleryStyle }}" style-hover="background:#ffffff;color:#000000">Highlights</button>
+            <button onClick="{{ onHeroVideo1 }}" style="{{ heroTabVideo1Style }}" style-hover="background:#ffffff;color:#000000">BeeVision</button>
+            <button onClick="{{ onHeroVideo2 }}" style="{{ heroTabVideo2Style }}" style-hover="background:#ffffff;color:#000000">Promotional</button>
           </div>
 
           <div style="perspective:1000px;width:100%;display:flex;justify-content:center;margin:4px 0 4px">
             <sc-if value="{{ isHeroLogo }}" hint-placeholder-val="{{ true }}">
               <img ref="{{ logoInnerRef }}" src="{{ cyclingLogoSrc }}" alt="Agri Mechatronics" style="width:min(680px,90vw);height:auto;display:block;transform-style:preserve-3d;transform:rotateY(0deg) rotateX(0deg);transition:transform .18s cubic-bezier(.16,1,.3,1);filter:drop-shadow(0 26px 50px rgba(0,0,0,.6));will-change:transform" />
             </sc-if>
+            <sc-if value="{{ isHeroGallery }}" hint-placeholder-val="{{ false }}">
+              <div style="width:min(1500px,95vw);aspect-ratio:16/10;border-radius:24px;overflow:hidden;position:relative;box-shadow:0 26px 60px rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.12);animation:blurIn .6s ease-out both">
+                <img src="{{ heroGallerySrc }}" alt="{{ heroGalleryTitle }}" referrerpolicy="no-referrer" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;animation:heroKen 8s ease-out both" key="{{ heroGallerySrc }}" />
+                <div style="position:absolute;inset:0;background:linear-gradient(to top,rgba(0,0,0,.72),rgba(0,0,0,0) 45%);pointer-events:none"></div>
+                <div style="position:absolute;left:24px;right:24px;bottom:20px;display:flex;align-items:flex-end;justify-content:space-between;gap:16px">
+                  <div style="text-align:left">
+                    <span style="display:block;font-family:'Space Mono',monospace;font-size:9.5px;letter-spacing:.2em;text-transform:uppercase;color:rgba(255,255,255,.6);margin-bottom:6px">Field Highlights</span>
+                    <span style="display:block;font-family:'Instrument Serif',serif;font-style:italic;font-size:clamp(22px,3.4vw,34px);line-height:1;color:#fff">{{ heroGalleryTitle }}</span>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;padding-bottom:6px">
+                    <sc-for list="{{ heroGalleryDots }}" as="d" hint-placeholder-count="5">
+                      <span onClick="{{ d.onDot }}" style="{{ d.dotStyle }}"></span>
+                    </sc-for>
+                  </div>
+                </div>
+              </div>
+            </sc-if>
             <sc-if value="{{ isHeroVideo1 }}" hint-placeholder-val="{{ false }}">
-              <div style="width:min(780px,90vw);aspect-ratio:16/9;border-radius:24px;overflow:hidden;box-shadow:0 26px 60px rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.12);animation:blurIn .6s ease-out both">
+              <div style="width:min(1360px,95vw);aspect-ratio:16/9;border-radius:24px;overflow:hidden;box-shadow:0 26px 60px rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.12);animation:blurIn .6s ease-out both">
                 <video src="assets/hero-video-1.mp4" autoPlay="{{ true }}" muted="{{ true }}" loop="{{ true }}" playsInline="{{ true }}" style="width:100%;height:100%;object-fit:cover;display:block" />
               </div>
             </sc-if>
             <sc-if value="{{ isHeroVideo2 }}" hint-placeholder-val="{{ false }}">
-              <div style="width:min(780px,90vw);aspect-ratio:16/9;border-radius:24px;overflow:hidden;box-shadow:0 26px 60px rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.12);animation:blurIn .6s ease-out both">
+              <div style="width:min(1360px,95vw);aspect-ratio:16/9;border-radius:24px;overflow:hidden;box-shadow:0 26px 60px rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.12);animation:blurIn .6s ease-out both;background:radial-gradient(circle at 50% 40%,rgba(30,32,40,.9),#0a0a0d);display:flex;align-items:center;justify-content:center">
+                <div style="display:flex;flex-direction:column;align-items:center;gap:14px;color:rgba(255,255,255,.85)">
+                  <span style="font-family:ui-monospace,monospace;font-size:12px;font-weight:700;letter-spacing:.28em;text-transform:uppercase;color:var(--accent,#a855f7)">Promotional Film</span>
+                  <span style="font-family:'Instrument Serif',serif;font-style:italic;font-size:clamp(40px,6vw,72px);line-height:1;color:#fff">Coming Soon</span>
+                  <span style="font-size:13px;color:rgba(255,255,255,.55);font-weight:300">Our lab film is in production — check back shortly.</span>
+                </div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ neverShowOldVideo2 }}" hint-placeholder-val="{{ false }}">
+              <div style="width:min(1360px,95vw);aspect-ratio:16/9;border-radius:24px;overflow:hidden;box-shadow:0 26px 60px rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.12);animation:blurIn .6s ease-out both">
                 <video src="assets/hero-video-2.mp4" autoPlay="{{ true }}" muted="{{ true }}" loop="{{ true }}" playsInline="{{ true }}" style="width:100%;height:100%;object-fit:cover;display:block" />
               </div>
             </sc-if>
@@ -353,22 +605,31 @@ main [data-screen-label]{min-width:0;max-width:100%}
       </div>
 
       <!-- ===== CINEMATIC PROJECT STACK (scroll-driven, real page scroll) ===== -->
-      <div ref="{{ cineWrapR }}" style="width:100vw;position:relative;left:50%;transform:translateX(-50%);height:12800px;background:#050507">
-        <div ref="{{ cineRootR }}" class="cine-stage" style="position:sticky;top:0;height:100vh;overflow:hidden;perspective:1200px;background:radial-gradient(circle at 50% 42%,rgba(22,24,30,.65) 0%,#050507 72%)">
-          <div ref="{{ cineWorldR }}" style="position:absolute;top:0;left:0;width:100%;height:100%;transform-style:preserve-3d;will-change:transform;pointer-events:none;transform:rotateX(var(--cw-rx,0deg)) rotateY(var(--cw-ry,0deg))">
-            <div style="position:absolute;top:50%;left:50%;width:2px;height:24000px;transform:translate(-50%,-50%) rotateX(90deg);background:linear-gradient(to bottom,rgba(255,255,255,0) 0%,var(--accent,#a855f7) 50%,rgba(255,255,255,0) 100%);box-shadow:0 0 30px var(--accent,#a855f7);opacity:.28"></div>
-            <sc-for list="{{ cineProjects }}" as="p" hint-placeholder-count="7">
-              <div data-cine-card data-z="{{ p.z }}" data-align="{{ p.align }}" style="position:absolute;top:50%;left:50%;width:min(88vw,540px);aspect-ratio:16/10;border-radius:22px;transform-origin:center center;overflow:hidden;padding:clamp(24px,3.6vw,42px);box-sizing:border-box;display:flex;flex-direction:column;justify-content:flex-end;background:linear-gradient(135deg,rgba(32,34,42,.55) 0%,rgba(12,13,18,.74) 100%);backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);border:1px solid rgba(255,255,255,.12);box-shadow:0 40px 90px rgba(0,0,0,.72),inset 0 1px 0 rgba(255,255,255,.18),inset 0 -1px 0 rgba(255,255,255,.05);will-change:transform,opacity;visibility:hidden;transform:translate(calc(-50% + {{ p.xo }} + var(--px,0px)), calc(-50% + var(--py,0px))) scale(var(--cs,0.7)) rotateY(var(--ctilt,0deg));opacity:var(--cop,0)">
-                <span style="position:absolute;top:-26px;right:8px;font-family:'Barlow Semi Condensed',sans-serif;font-weight:800;font-size:210px;line-height:1;color:rgba(255,255,255,.045);pointer-events:none;user-select:none">{{ p.n }}</span>
-                <div style="position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,transparent,var(--accent,#a855f7),transparent);opacity:.75"></div>
-                <div style="position:relative;z-index:2;display:flex;flex-direction:column;gap:11px">
-                  <div style="font-family:ui-monospace,monospace;font-size:11px;font-weight:700;letter-spacing:.22em;text-transform:uppercase;color:var(--accent,#a855f7)">{{ p.n }} &nbsp;//&nbsp; {{ p.agency }}</div>
+      <div ref="{{ cineWrapR }}" id="cineWrap" style="width:100vw;position:relative;left:50%;transform:translateX(-50%);height:24200px;background:#04060a">
+        <div ref="{{ cineRootR }}" id="cineStage" class="cine-stage" style="position:sticky;top:0;height:100vh;overflow:hidden;perspective:1200px;background:#04060a">
+          <canvas id="cineTerrain" aria-hidden="true" style="position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;display:block"></canvas>
+          <div ref="{{ cineWorldR }}" style="position:absolute;top:0;left:0;width:100%;height:100%;transform-style:preserve-3d;will-change:transform;pointer-events:none;z-index:2;transform:rotateX(var(--cw-rx,0deg)) rotateY(var(--cw-ry,0deg))">
+            <div style="position:absolute;top:50%;left:50%;width:2px;height:24000px;transform:translate(-50%,-50%) rotateX(90deg);background:linear-gradient(to bottom,rgba(255,255,255,0) 0%,#6ff2a0 50%,rgba(255,255,255,0) 100%);box-shadow:0 0 30px #6ff2a0;opacity:.24"></div>
+            <sc-for list="{{ cineProjects }}" as="p" hint-placeholder-count="17">
+              <div data-cine-card data-z="{{ p.z }}" data-align="{{ p.align }}" style="position:absolute;top:50%;left:50%;width:min(88vw,540px);aspect-ratio:16/10;border-radius:10px;transform-origin:center center;overflow:hidden;padding:clamp(24px,3.4vw,40px);box-sizing:border-box;display:flex;flex-direction:column;justify-content:flex-end;background:linear-gradient(135deg,rgba(10,26,20,.46) 0%,rgba(4,10,8,.7) 100%);backdrop-filter:blur(13px) saturate(120%);-webkit-backdrop-filter:blur(13px) saturate(120%);border:1px solid rgba(111,242,160,.2);box-shadow:0 40px 90px rgba(0,0,0,.7),0 0 40px rgba(111,242,160,.06),inset 0 1px 0 rgba(111,242,160,.14);will-change:transform,opacity;visibility:hidden;transform:translate(calc(-50% + {{ p.xo }} + var(--px,0px)), calc(-50% + var(--py,0px))) scale(var(--cs,0.7)) rotateY(var(--ctilt,0deg));opacity:var(--cop,0)">
+                <span style="position:absolute;top:-30px;right:10px;font-family:'Barlow Semi Condensed',sans-serif;font-weight:800;font-size:210px;line-height:1;color:rgba(111,242,160,.05);pointer-events:none;user-select:none">{{ p.n }}</span>
+                <div style="position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,#6ff2a0,transparent);opacity:.7"></div>
+                <div class="cine-scan" style="position:absolute;left:0;right:0;top:0;height:2px;background:linear-gradient(90deg,transparent,rgba(111,242,160,.85),transparent);box-shadow:0 0 14px rgba(111,242,160,.7);pointer-events:none;z-index:3"></div>
+                <span class="cine-lock" style="position:absolute;top:12px;left:12px;width:16px;height:16px;border-top:1.5px solid #6ff2a0;border-left:1.5px solid #6ff2a0;pointer-events:none"></span>
+                <span class="cine-lock" style="position:absolute;top:12px;right:12px;width:16px;height:16px;border-top:1.5px solid #6ff2a0;border-right:1.5px solid #6ff2a0;pointer-events:none"></span>
+                <span class="cine-lock" style="position:absolute;bottom:12px;left:12px;width:16px;height:16px;border-bottom:1.5px solid #6ff2a0;border-left:1.5px solid #6ff2a0;pointer-events:none"></span>
+                <span class="cine-lock" style="position:absolute;bottom:12px;right:12px;width:16px;height:16px;border-bottom:1.5px solid #6ff2a0;border-right:1.5px solid #6ff2a0;pointer-events:none"></span>
+                <div style="position:relative;z-index:2;display:flex;flex-direction:column;gap:10px">
+                  <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;font-family:ui-monospace,monospace;font-size:10.5px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:#6ff2a0">
+                    <span>WPT {{ p.n }} &nbsp;//&nbsp; {{ p.agency }}</span>
+                    <span style="color:rgba(111,242,160,.5);letter-spacing:.14em;flex:none">SITE {{ p.n }}/17</span>
+                  </div>
                   <h3 style="font-family:'Instrument Serif',serif;font-style:italic;font-size:clamp(30px,3.8vw,46px);line-height:1;color:#fff;margin:0;letter-spacing:-.5px">{{ p.title }}</h3>
-                  <div style="font-size:13px;color:rgba(255,255,255,.6);font-weight:400;letter-spacing:.01em;margin-top:-3px">{{ p.sub }}</div>
+                  <div style="font-size:13px;color:rgba(255,255,255,.58);font-weight:400;letter-spacing:.01em;margin-top:-3px">{{ p.sub }}</div>
                   <p style="font-size:13.5px;line-height:1.6;color:rgba(255,255,255,.8);font-weight:300;margin:6px 0 0;max-width:94%">{{ p.desc }}</p>
                   <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:9px">
                     <sc-for list="{{ p.tags }}" as="t" hint-placeholder-count="3">
-                      <span style="font-family:ui-monospace,monospace;font-size:10px;letter-spacing:.05em;color:rgba(255,255,255,.85);background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.13);border-radius:9999px;padding:4px 11px">{{ t }}</span>
+                      <span style="font-family:ui-monospace,monospace;font-size:10px;letter-spacing:.05em;color:rgba(207,255,226,.9);background:rgba(111,242,160,.07);border:1px solid rgba(111,242,160,.22);border-radius:4px;padding:4px 11px">{{ t }}</span>
                     </sc-for>
                   </div>
                 </div>
@@ -376,12 +637,14 @@ main [data-screen-label]{min-width:0;max-width:100%}
             </sc-for>
           </div>
 
-          <div style="position:absolute;inset:0;z-index:3;pointer-events:none;background:radial-gradient(circle at center,transparent 22%,rgba(3,3,5,.94) 100%)"></div>
+          <div style="position:absolute;inset:0;z-index:3;pointer-events:none;background:radial-gradient(circle at center,transparent 30%,rgba(4,6,10,.72) 100%)"></div>
 
           <div style="position:absolute;top:56px;left:0;right:0;z-index:5;display:flex;flex-direction:column;align-items:center;gap:7px;pointer-events:none">
-            <span style="font-family:ui-monospace,monospace;font-size:11px;font-weight:700;letter-spacing:.24em;text-transform:uppercase;color:var(--accent,#a855f7)">// Portfolios &amp; Grants</span>
+            <span style="font-family:ui-monospace,monospace;font-size:11px;font-weight:700;letter-spacing:.24em;text-transform:uppercase;color:#6ff2a0">// Portfolios &amp; Grants</span>
             <h2 style="font-family:'Instrument Serif',serif;font-style:italic;font-size:34px;color:#fff;margin:0;line-height:1;text-shadow:0 4px 24px rgba(0,0,0,.6)">Active Research Projects</h2>
           </div>
+
+          <!-- Flight-recorder HUD removed -->
 
           <div ref="{{ cineTextR }}" class="cine-meta" style="position:absolute;left:40px;bottom:44px;z-index:5;display:flex;align-items:flex-end;gap:16px;pointer-events:none;transition:opacity .35s ease,transform .35s ease">
             <span ref="{{ cineNumR }}" class="cine-num" style="font-family:'Barlow Semi Condensed',sans-serif;font-weight:800;font-size:60px;line-height:.78;color:var(--accent,#a855f7)">01</span>
@@ -391,13 +654,13 @@ main [data-screen-label]{min-width:0;max-width:100%}
             </div>
           </div>
 
-          <div ref="{{ cineDotsR }}" class="cine-dots" style="position:absolute;right:50px;top:50%;transform:translateY(-50%);z-index:5;height:190px;display:flex;flex-direction:column;justify-content:space-between;align-items:center;pointer-events:none">
-            <sc-for list="{{ cineProjects }}" as="p" hint-placeholder-count="7">
+          <div ref="{{ cineDotsR }}" class="cine-dots" style="position:absolute;right:50px;top:50%;transform:translateY(-50%);z-index:5;height:300px;display:flex;flex-direction:column;justify-content:space-between;align-items:center;pointer-events:none">
+            <sc-for list="{{ cineProjects }}" as="p" hint-placeholder-count="17">
               <span style="width:5px;height:5px;border-radius:9999px;background:rgba(255,255,255,.22);transition:background .3s ease,transform .3s ease"></span>
             </sc-for>
           </div>
 
-          <div class="cine-bar" style="position:absolute;right:34px;top:50%;transform:translateY(-50%);z-index:5;height:190px;width:2px;background:rgba(255,255,255,.12);border-radius:2px;overflow:hidden;pointer-events:none">
+          <div class="cine-bar" style="position:absolute;right:34px;top:50%;transform:translateY(-50%);z-index:5;height:300px;width:2px;background:rgba(255,255,255,.12);border-radius:2px;overflow:hidden;pointer-events:none">
             <div ref="{{ cineBarR }}" style="position:absolute;top:0;left:0;width:100%;height:0;background:linear-gradient(180deg,var(--accent,#a855f7),rgba(255,255,255,.35));box-shadow:0 0 12px var(--accent,#a855f7)"></div>
           </div>
 
@@ -407,6 +670,64 @@ main [data-screen-label]{min-width:0;max-width:100%}
           </div>
         </div>
       </div>
+
+      <!-- ===== SITE FOOTER (after the scroll) ===== -->
+      <footer style="width:100vw;position:relative;left:50%;transform:translateX(-50%);background:#0a0a0d;border-top:1px solid rgba(255,255,255,.09);color:rgba(255,255,255,.7)">
+        <div style="max-width:1240px;margin:0 auto;padding:72px 32px 40px;display:grid;grid-template-columns:1.5fr 1fr 1.25fr;gap:56px;align-items:start" class="ftr-grid">
+          <div style="display:flex;flex-direction:column;gap:18px;max-width:380px">
+            <img src="assets/agrimechatronics-logo.png" alt="Agri Mechatronics Lab" style="height:76px;width:auto;align-self:flex-start;filter:drop-shadow(0 2px 8px rgba(0,0,0,.4))" />
+            <p style="margin:0;font-size:14px;line-height:1.7;color:rgba(255,255,255,.62);font-weight:300">The Agri Mechatronics Lab designs sensing, robotics and machine-learning systems for the future of agriculture — from pollinator health to autonomous field machinery.</p>
+            <div style="display:flex;flex-direction:column;gap:9px;margin-top:4px">
+              <div style="display:flex;align-items:flex-start;gap:11px">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent,#a855f7)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;margin-top:2px"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+                <span style="font-size:13px;line-height:1.55;color:rgba(255,255,255,.7)">Offerdahl Engineering Complex<br />North Dakota State University, Fargo, ND</span>
+              </div>
+              <a href="mailto:sulaymon.eshkabilov@ndsu.edu" style="display:flex;align-items:center;gap:11px;text-decoration:none;color:rgba(255,255,255,.7);font-family:ui-monospace,monospace;font-size:13px" style-hover="color:#ffffff">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent,#a855f7)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="2" y="4" width="20" height="16" rx="2"></rect><path d="m22 7-10 5L2 7"></path></svg>
+                sulaymon.eshkabilov@ndsu.edu
+              </a>
+            </div>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:14px">
+            <span style="font-family:ui-monospace,monospace;font-size:11px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--accent,#a855f7)">Explore</span>
+            <div style="display:flex;flex-direction:column;gap:10px">
+              <sc-for list="{{ footerNav }}" as="fn" hint-placeholder-count="9">
+                <button onClick="{{ fn.onClick }}" type="button" style="background:none;border:none;padding:0;text-align:left;cursor:pointer;font-size:14px;font-weight:400;color:rgba(255,255,255,.68);width:fit-content;transition:color .2s,transform .2s" style-hover="color:#ffffff;transform:translateX(3px)">{{ fn.label }}</button>
+              </sc-for>
+            </div>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:16px">
+            <span style="font-family:ui-monospace,monospace;font-size:11px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--accent,#a855f7)">Funded By</span>
+            <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:center">
+              <a href="https://www.nsf.gov/" target="_blank" rel="noopener" style="display:flex;align-items:center;justify-content:center;background:#ffffff;border-radius:12px;padding:16px 20px;min-width:150px;min-height:70px;box-sizing:border-box" style-hover="opacity:.88">
+                <img src="assets/nsf.png" alt="National Science Foundation" style="max-height:46px;max-width:120px;width:auto;height:auto;object-fit:contain;display:block" />
+              </a>
+              <a href="https://www.usda.gov/" target="_blank" rel="noopener" style="display:flex;align-items:center;justify-content:center;background:#ffffff;border-radius:12px;padding:16px 20px;min-width:150px;min-height:70px;box-sizing:border-box" style-hover="opacity:.88">
+                <img src="assets/usda.png" alt="U.S. Department of Agriculture" style="max-height:44px;max-width:150px;width:auto;height:auto;object-fit:contain;display:block" />
+              </a>
+            </div>
+            <span style="font-family:ui-monospace,monospace;font-size:11px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--accent,#a855f7);margin-top:8px">In Partnership With</span>
+            <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:center">
+              <a href="https://www.linak-us.com/" target="_blank" rel="noopener" style="display:flex;align-items:center;justify-content:center;background:#ffffff;border-radius:12px;padding:16px 20px;min-width:150px;min-height:70px;box-sizing:border-box" style-hover="opacity:.88">
+                <img src="assets/linak-crop.png" alt="LINAK" style="max-height:34px;max-width:130px;width:auto;height:auto;object-fit:contain;display:block" />
+              </a>
+              <a href="https://www.purdue.edu/" target="_blank" rel="noopener" style="display:flex;align-items:center;justify-content:center;background:#ffffff;border-radius:12px;padding:16px 20px;min-width:150px;min-height:70px;box-sizing:border-box" style-hover="opacity:.88">
+                <img src="assets/purdue-light.png" alt="Purdue University" style="max-height:40px;max-width:160px;width:auto;height:auto;object-fit:contain;display:block" />
+              </a>
+            </div>
+            <button onClick="{{ onFooterCollab }}" type="button" style="align-self:flex-start;margin-top:4px;display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.16);border-radius:9999px;padding:9px 16px;cursor:pointer;color:#fff;font-size:12px;font-weight:600;letter-spacing:.02em;transition:background .2s,border-color .2s" style-hover="background:#ffffff;color:#000000;border-color:#ffffff">
+              See all collaborators
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"></path></svg>
+            </button>
+          </div>
+        </div>
+        <div style="max-width:1240px;margin:0 auto;padding:22px 32px 40px;border-top:1px solid rgba(255,255,255,.08);display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:center">
+          <span style="font-size:12px;color:rgba(255,255,255,.42);font-family:ui-monospace,monospace">© {{ footerYear }} Agri Mechatronics Lab · NDSU. All rights reserved.</span>
+          <span style="font-size:12px;color:rgba(255,255,255,.42)">Dept. of Agricultural &amp; Biosystems Engineering</span>
+        </div>
+      </footer>
     </sc-if>
 
     <!-- ===================== RESEARCH / CAPABILITIES ===================== -->
@@ -884,6 +1205,36 @@ main [data-screen-label]{min-width:0;max-width:100%}
           <h2 style="font-family:'Instrument Serif',serif;font-style:italic;font-size:64px;color:#fff;line-height:1;margin:0">Gallery</h2>
         </div>
 
+        <div style="margin:14px auto 42px;max-width:1180px;width:100%;padding:0 8px">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+            <span style="font-family:'Space Mono',monospace;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--accent,#a855f7);font-weight:700">Featured</span>
+            <span style="flex:1;height:1px;background:linear-gradient(90deg,rgba(255,255,255,.18),transparent)"></span>
+          </div>
+          <div class="feat-grid" style="display:grid;grid-template-columns:2fr 1fr 1fr;grid-auto-rows:200px;gap:14px">
+            <sc-for list="{{ featuredCards }}" as="f" hint-placeholder-count="5">
+              <div class="feat-cell" onClick="{{ f.onOpen }}" style="position:relative;border-radius:18px;overflow:hidden;cursor:pointer;border:1px solid rgba(255,255,255,.1);box-shadow:0 14px 34px rgba(0,0,0,.4)" style-hover="transform:translateY(-3px)">
+                <img src="{{ f.url }}" alt="{{ f.title }}" referrerpolicy="no-referrer" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transition:transform .6s cubic-bezier(.16,1,.3,1)" />
+                <div style="position:absolute;inset:0;background:linear-gradient(to top,rgba(0,0,0,.78),rgba(0,0,0,0) 55%)"></div>
+                <sc-if value="{{ f.isHl }}" hint-placeholder-val="{{ false }}">
+                  <div style="position:absolute;top:14px;right:14px;z-index:2;display:flex;flex-direction:column;align-items:flex-end;gap:7px">
+                    <div style="display:flex;align-items:center;gap:6px;background:rgba(0,0,0,.55);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.18);padding:5px 12px;border-radius:9999px">
+                      <span style="{{ f.badgeAcc }};border-radius:50%;width:6px;height:6px;animation:pgmPulse 1.6s infinite"></span>
+                      <span style="font-family:'Space Mono',monospace;font-size:8.5px;letter-spacing:.14em;text-transform:uppercase;color:#fff">Featured</span>
+                    </div>
+                    <div key="{{ f.hlKey }}" style="width:64px;height:2.5px;border-radius:9999px;background:rgba(255,255,255,.18);overflow:hidden">
+                      <div key="{{ f.hlKey }}" style="{{ f.progStyle }}"></div>
+                    </div>
+                  </div>
+                </sc-if>
+                <div style="position:absolute;left:16px;right:16px;bottom:14px;text-align:left;z-index:1">
+                  <span style="display:block;font-family:'Space Mono',monospace;font-size:8.5px;letter-spacing:.16em;text-transform:uppercase;color:rgba(255,255,255,.6);margin-bottom:4px">{{ f.tag }}</span>
+                  <span style="display:block;font-family:'Instrument Serif',serif;font-style:italic;font-size:20px;line-height:1.05;color:#fff">{{ f.title }}</span>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
         <div class="gal-stage" style="position:relative;animation:galRise .7s cubic-bezier(.16,1,.3,1) both;animation-delay:.1s">
           <div class="gal-line"></div>
           <div ref="{{ galDashRef }}" class="gal-dash" style="left:8%"></div>
@@ -1241,6 +1592,9 @@ class Component extends DCLogic {
       flipped: {},
       heroMedia: "logo",
       logoCycleIndex: 0,
+      heroGalleryIndex: 0,
+      featHlIndex: 0,
+      heroGalleryIndex: 0,
       expandedMember: null,
       bgVideoIndex: 0,
       lightbox: null,
@@ -1421,15 +1775,39 @@ class Component extends DCLogic {
   lbStep(dir) { this.setState((s) => { if (!s.lightbox) return null; const n = s.lightbox.list.length; const i = (s.lightbox.index + dir + n) % n; return { lightbox: { list: s.lightbox.list, index: i } }; }); }
 
   _cineData() {
-    return [
-      { n: "01", agency: "NSF · CAREER", title: "Save the Honeybees", sub: "Modeling, Identification & Prediction", desc: "Computer-vision pipelines that track markerless honeybee morphology and behavior to model colony health and forecast pollinator decline.", tags: ["BeeVision", "Keypoint Tracking", "Colony Health"], z: -800, align: "left" },
-      { n: "02", agency: "USDA · CEA", title: "Controlled Environment Agriculture", sub: "Indoor Farming in North Dakota", desc: "Sensor-driven climate and nutrient control enabling year-round indoor crop production under harsh northern-plains conditions.", tags: ["Hydroponics", "Climate Control", "Yield"], z: -2350, align: "right" },
-      { n: "03", agency: "Sensor Fusion", title: "ML × Electromagnetic Sensing", sub: "Fusion of Machine Learning & EM Sensors", desc: "Fusing electromagnetic sensor arrays with deep learning to map soil and subsurface properties beneath the crop canopy.", tags: ["EM Arrays", "Deep Fusion", "Soil Mapping"], z: -3900, align: "center" },
-      { n: "04", agency: "Edge AI", title: "On-Farm Weed Control", sub: "Edge-AI Precision Weeding", desc: "Real-time weed detection and targeted actuation running entirely on-device for autonomous mechanical weeding rigs.", tags: ["Edge Inference", "Spot Spray", "Robotics"], z: -5450, align: "left" },
-      { n: "05", agency: "NSF · MRI Track 1", title: "3D Scanning Vibrometer", sub: "PSV QTEC H · Acquisition", desc: "Major-instrumentation acquisition of a Polytec 3D scanning laser vibrometer for full-field structural dynamics characterization.", tags: ["Vibrometry", "Modal Analysis", "Instrumentation"], z: -7000, align: "right" },
-      { n: "06", agency: "Societal Impact", title: "Clean Energy Tractors", sub: "Societal Implications for Farming", desc: "Assessing the economic, environmental and community implications of transitioning farm powertrains to clean energy.", tags: ["Electrification", "Policy", "Adoption"], z: -8550, align: "center" },
-      { n: "07", agency: "ML · CEA", title: "Optimizing Lettuce Production", sub: "Machine-Learning Growth Models", desc: "Hyperspectral imaging and ML models that predict nutrient content and optimize hydroponic lettuce growth cycles.", tags: ["Hyperspectral", "Nutrient Est.", "Optimization"], z: -10100, align: "left" },
-    ].map((p) => Object.assign({}, p, { xo: p.align === "left" ? "-19vw" : p.align === "right" ? "19vw" : "0vw" }));
+    const raw = [
+      { agency: "Honeybees & Pollinators", title: "Honeybee Vibrational Response", sub: "Lindsey, Woodcock, Ahmmad, Fajardo, Ibne, Onnolu", desc: "Mapping how bees and larvae respond to vibration to design gentler colony transport.", tags: ["Laser Vibrometry", "8 Hz Resonance", "Colony Transport"] },
+      { agency: "Honeybees & Pollinators", title: "BeeVision: Fanning Detection", sub: "Jewel Woodcock, Shoaib Ahmmad", desc: "A lightweight motion-flux method spots wing-fanning where foundation CV models fail.", tags: ["Motion-Flux CV", "Edge Inference", "Near-Zero FP"] },
+      { agency: "Honeybees & Pollinators", title: "Thermal Hive Monitoring", sub: "Jewel Woodcock", desc: "Reading colony health from heat signatures, without ever opening the hive.", tags: ["Thermal Imaging", "Non-Invasive", "Segmentation"] },
+      { agency: "Honeybees & Pollinators", title: "Wireless Bee-Hive Sensing", sub: "Joanna Daniella Fajardo", desc: "CO₂ and piezoelectric sensing for real-time hive health, wirelessly.", tags: ["CO₂ Sensing", "Piezo Vibration", "Wireless Node"] },
+      { agency: "Honeybees & Pollinators", title: "Bee Excitor: Edge-IoT Platform", sub: "Md. Ibne Joha", desc: "An active knocker rig plus multimodal sensing for live colony diagnostics.", tags: ["Active Excitation", "Multimodal Sensing", "Edge + Dashboard"] },
+      { agency: "Honeybees & Pollinators", title: "Honey Concentration Detection", sub: "Mohammad Aftabi Talami", desc: "Estimating comb fill level without cutting into the frame.", tags: ["UWB Radar", "Image Analysis", "98.1% Agreement"] },
+
+      { agency: "Farm Machinery & Engines", title: "Clean-Energy Tractors", sub: "Nazempour, Talami, Bordeaux, Shafi", desc: "Weighing the economic and social tradeoffs of electrifying farm tractors.", tags: ["Electrification", "Adoption", "Policy"] },
+      { agency: "Farm Machinery & Engines", title: "AI-Ready Engine Modeling", sub: "Nazempour, Talami, Bordeaux", desc: "Twenty-plus synchronized channels of engine data, built for machine learning.", tags: ["Dynamometer", "20+ Channels", "Emissions ML"] },
+      { agency: "Farm Machinery & Engines", title: "Tractor Operation Simulator", sub: "Mohammad Aftabi Talami", desc: "A modeling tool predicting draft force, power, and emissions for any implement.", tags: ["Draft-Force Model", "11 Field Runs", "Sim Software"] },
+
+      { agency: "Robotics & Autonomy", title: "UGV Navigation & Traction", sub: "Mohammad Aftabi Talami", desc: "Keeping an autonomous field robot on-row and traction-efficient.", tags: ["GNSS Guidance", "17.4 cm Error", "Traction Model"] },
+      { agency: "Robotics & Autonomy", title: "Site-Specific Mechanical Weeding", sub: "Shafi Md. Istiak", desc: "Tilling only where weeds actually are, guided by drone imagery and RTK-GPS.", tags: ["Drone Weed Map", "RTK-GPS", "96.5% Efficacy"] },
+      { agency: "Robotics & Autonomy", title: "Autonomous Soil Sampler", sub: "Fajardo, Krause, Shafi, Talami, Ibne, Bruemmer, Sadeghi", desc: "A turret robot that excavates and packages soil samples autonomously.", tags: ["Soil Sampling", "Turret Robot", "Top-5 Finalist"] },
+      { agency: "Robotics & Autonomy", title: "Drone Precision Landing", sub: "Md. Ibne Joha", desc: "Vision-guided autonomous landing accurate to centimeters.", tags: ["Vision Landing", "8.78 cm Error", "Fiducial Target"] },
+
+      { agency: "Controlled-Environment Ag", title: "Sugar Beet Storage Sensing", sub: "Bakht Alam Khan", desc: "Catching rot before it spreads through a stored beet pile.", tags: ["LoRa Sensing", "Rot Detection", "Cold Storage"] },
+      { agency: "Controlled-Environment Ag", title: "CEA in North Dakota", sub: "Shafi Md. Istiak", desc: "A full sensor-to-dashboard hydroponic system for year-round lettuce.", tags: ["Hydroponics", "9 Sensor Units", "ML Growth Levels"] },
+      { agency: "Controlled-Environment Ag", title: "Hyperspectral Leaf Monitoring", sub: "Farhin Faiza Neha", desc: "Reading a leaf's chemistry from reflected light — no lab chemistry required.", tags: ["Hyperspectral", "Nutrient Est.", "Food Safety"] },
+      { agency: "Controlled-Environment Ag", title: "Lettuce Quality by Leaf Region", sub: "Mahmoud Alam Pranto", desc: "Apex, middle, or base leaf — spectral fingerprints differ by zone.", tags: ["Leaf-Zone HSI", "5 Traits", "Non-Destructive"] },
+    ];
+    const aligns = ["left", "right", "center"];
+    const SPACING = 1300;
+    return raw.map((p, i) => {
+      const align = aligns[i % 3];
+      return Object.assign({}, p, {
+        n: String(i + 1).padStart(2, "0"),
+        z: -800 - i * SPACING,
+        align: align,
+        xo: align === "left" ? "-19vw" : align === "right" ? "19vw" : "0vw",
+      });
+    });
   }
   _cineHideHint() { const h = this.cineHintR.current; if (h && h.style.opacity !== "0") h.style.opacity = "0"; }
   _cineWatch() {
@@ -1530,6 +1908,8 @@ class Component extends DCLogic {
       if (bar) bar.style.height = (railProg * 100) + "%";
       if (best !== this._cineActive || worldChanged) {
         const isNewMount = worldChanged;
+        if (cards[this._cineActive] && cards[this._cineActive] !== cards[best]) cards[this._cineActive].removeAttribute("data-active");
+        if (cards[best]) cards[best].setAttribute("data-active", "1");
         this._cineActive = best;
         const p = this._cineArr[best];
         const box = this.cineTextR ? this.cineTextR.current : null;
@@ -1546,7 +1926,7 @@ class Component extends DCLogic {
         const dots = this.cineDotsR && this.cineDotsR.current ? this.cineDotsR.current.children : null;
         if (dots) {
           for (let d = 0; d < dots.length; d++) {
-            dots[d].style.background = d === best ? "var(--accent,#a855f7)" : "rgba(255,255,255,.22)";
+            dots[d].style.background = d === best ? "#6ff2a0" : "rgba(255,255,255,.22)";
             dots[d].style.transform = d === best ? "scale(1.5)" : "scale(1)";
           }
         }
@@ -1685,10 +2065,10 @@ class Component extends DCLogic {
         { src: "assets/gallery/rob4/07-live-telemetry.png", caption: "3D precision-landing animation with live telemetry readout." },
       ], heroStat: "8.78 cm", stats: [{ value: "8.78 cm", label: "Horizontal landing error" }, { value: "9.09 m", label: "Peak flight altitude" }, { value: "48.4 s", label: "Total flight time" }], methodology: "A Landmark precision-landing camera was integrated into the IF800 UAV's landing gear (via a converter module and damping kit) to detect a fiducial ground marker. Indoor validation used stacked boxes at measured heights to verify camera detection, while outdoor flights used a portable landing pad with telemetry monitored live in Mission Planner; MATLAB then reconstructs 3D flight trajectories from logged EKF (XKF1) data for landing-error analysis.", results: "A validated flight climbed to a peak altitude of 9.09 m, executed a search/approach maneuver, and landed with just 8.78 cm horizontal error (0.4437 m total 3D error) \u2014 rated \u2018Excellent\u2019 (under 10 cm) \u2014 across a 48.4-second flight sampled at 24.8 Hz (1,204 data points), reaching max 3D speed of 3.33 m/s." },
 
-      { id: "cea-1", domain: "cea", title: "Wireless Sensing for Sugar Beet Storage", team: "Bakht Alam Khan", tagline: "Catching rot before it spreads through a stored beet pile.", image: null, heroStat: null, stats: [{ value: "6", label: "Custom LoRa sensor PCBs" }, { value: "~1 month", label: "Continuous test duration" }], methodology: "Targeting gas (VOC/ethanol), atmospheric (CO\u2082 respiration), and conditioning (temperature/humidity) sensing, six custom PCBs \u2014 each combining a CO\u2082 sensor, temperature/humidity sensing, and a LoRa (RYLR998) radio \u2014 were split three-and-three between 4\u00b0C and room-temperature storage, sealed alongside real beets in non-ventilated buckets to mimic field-pile conditions, each transmitting for 30 seconds then sleeping 30 minutes to avoid collisions.", results: "Room-temperature boxes climbed to 80\u201390% humidity, spiked in VOC/ethanol signal, and approached the CO\u2082 sensor's ~40,000 ppm ceiling within about a month, with visibly more rot (one box failed from condensation); 4\u00b0C boxes stayed near saturation humidity with lower ethanol buildup and visibly healthier beets \u2014 pointing toward refrigerated storage, moisture-protected PCBs, and a higher-range CO\u2082 sensor as next steps." },
+      { id: "cea-1", domain: "cea", title: "Wireless Sensing for Sugar Beet Storage", team: "Bakht Alam Khan", tagline: "Catching rot before it spreads through a stored beet pile.", image: "assets/gallery/new/sugarbeet-pile-2.jpg", heroStat: null, stats: [{ value: "6", label: "Custom LoRa sensor PCBs" }, { value: "~1 month", label: "Continuous test duration" }], methodology: "Targeting gas (VOC/ethanol), atmospheric (CO\u2082 respiration), and conditioning (temperature/humidity) sensing, six custom PCBs \u2014 each combining a CO\u2082 sensor, temperature/humidity sensing, and a LoRa (RYLR998) radio \u2014 were split three-and-three between 4\u00b0C and room-temperature storage, sealed alongside real beets in non-ventilated buckets to mimic field-pile conditions, each transmitting for 30 seconds then sleeping 30 minutes to avoid collisions.", results: "Room-temperature boxes climbed to 80\u201390% humidity, spiked in VOC/ethanol signal, and approached the CO\u2082 sensor's ~40,000 ppm ceiling within about a month, with visibly more rot (one box failed from condensation); 4\u00b0C boxes stayed near saturation humidity with lower ethanol buildup and visibly healthier beets \u2014 pointing toward refrigerated storage, moisture-protected PCBs, and a higher-range CO\u2082 sensor as next steps." },
       { id: "cea-2", domain: "cea", title: "Controlled Environment Agriculture in North Dakota", team: "Shafi Md. Istiak", tagline: "A full sensor-to-dashboard hydroponic growing system for year-round lettuce.", image: "assets/gallery/hydroponic-monitoring.jpg", heroStat: null, stats: [{ value: "9", label: "Monitoring units" }, { value: "6", label: "ML-classified growth levels" }], methodology: "With global population projected at 9.7 billion by 2050 and ~4 million hectares of farmland lost to development annually, the project builds a distributed sensor network: Arduino Uno R4 boards publish EC, pH, dissolved oxygen, and temperature (DS18B20) plus environmental readings (DHT22, SCD30 CO\u2082, BH1750 light) over MQTT to a Raspberry Pi 5 broker/edge hub with an AI camera, across nine monitoring units fed by three dosing pumps delivering concentrations from 0 to 400 ppm.", results: "pH fell from about 8.7 at 0 ppm to roughly 5\u20136 at higher concentrations while EC rose from ~500 to over 2000 \u00b5S/cm, both tracking daily temperature cycles. A Gaussian Mixture Model (visualized via PCA) now clusters plant images into 6 qualitative growth levels, from healthy full heads to stunted, stressed plants, to inform automated nutrient dosing based on temperature, EC, and pH." },
-      { id: "cea-3", domain: "cea", title: "Hyperspectral Imaging for Lettuce Nutrient & Disease Monitoring", team: "Farhin Faiza Neha", tagline: "Reading a leaf\u2019s chemistry from reflected light \u2014 no lab chemistry required.", image: null, heroStat: "0.85\u20130.89 r", stats: [{ value: "0.85\u20130.89", label: "Best trait correlation (r)" }, { value: "7", label: "Regression models benchmarked" }, { value: "4", label: "Feature-selection methods compared" }], methodology: "A Resonon Pika XC2 hyperspectral camera on a motorized stage scans lettuce leaves, roots (via K-means background separation), and whole plants \u2014 including plants irrigated with egg-washing wastewater, addressing the food-safety risk of wastewater reuse on leafy greens \u2014 with spectra cross-checked against USDA and Purdue datasets. A companion benchmarking study pairs four feature-selection methods (FDR, CARS, GA, VIP) with seven regression models (PLSR, ANN, SVR, RF, XGBoost, LightGBM, CatBoost) predicting traits like SPAD, sugars, dry matter, vitamin C, and micronutrients.", results: "SPAD and beta-carotene were predicted most reliably (r up to ~0.85\u20130.89 with the best NRMSE), while potassium proved hardest to model across most method combinations \u2014 establishing a non-destructive, real-time alternative to wet-chemistry testing for nutrient and disease monitoring." },
-      { id: "cea-4", domain: "cea", title: "Predicting Lettuce Quality from Leaf Region & Hyperspectral Data", team: "Mahmoud Alam Pranto", tagline: "Apex, middle, or base leaf \u2014 spectral fingerprints differ by zone.", image: null, heroStat: null, stats: [{ value: "5", label: "Quality traits predicted" }, { value: "400\u20131000 nm", label: "Spectral range analyzed" }, { value: "$21.8B", label: "2022 US vegetable receipts (lettuce ~1/5)" }], methodology: "No prior HSI study had treated apex, middle, and base leaf regions as separate spectral inputs, despite their differing stomatal density and vein distribution. Tacitus romaine lettuce was grown across four hydroponic tank replicates and sampled weekly across growth stages (3\u20134 up to 10\u201315 true leaves); a Resonon Pika XC2 camera captured masked mean-reflectance spectra (350\u20131000 nm) per leaf zone, paired with handheld-meter ground truth for pH, EC, nitrate, calcium, and Brix to train regression/ANN models.", results: "Apex, middle, and base regions showed visibly distinct spectral characteristics and variance patterns, confirming that leaf zone matters for prediction accuracy \u2014 supporting a real-time, non-destructive monitoring framework that could replace hours-to-days wet-chemistry testing in commercial CEA operations, in a crop that made up nearly one-fifth of the $21.8 billion 2022 US vegetable and melon market." },
+      { id: "cea-3", domain: "cea", title: "Hyperspectral Imaging for Lettuce Nutrient & Disease Monitoring", team: "Farhin Faiza Neha", tagline: "Reading a leaf\u2019s chemistry from reflected light \u2014 no lab chemistry required.", image: "assets/gallery/new/cea-greenhouse.jpg", heroStat: "0.85\u20130.89 r", stats: [{ value: "0.85\u20130.89", label: "Best trait correlation (r)" }, { value: "7", label: "Regression models benchmarked" }, { value: "4", label: "Feature-selection methods compared" }], methodology: "A Resonon Pika XC2 hyperspectral camera on a motorized stage scans lettuce leaves, roots (via K-means background separation), and whole plants \u2014 including plants irrigated with egg-washing wastewater, addressing the food-safety risk of wastewater reuse on leafy greens \u2014 with spectra cross-checked against USDA and Purdue datasets. A companion benchmarking study pairs four feature-selection methods (FDR, CARS, GA, VIP) with seven regression models (PLSR, ANN, SVR, RF, XGBoost, LightGBM, CatBoost) predicting traits like SPAD, sugars, dry matter, vitamin C, and micronutrients.", results: "SPAD and beta-carotene were predicted most reliably (r up to ~0.85\u20130.89 with the best NRMSE), while potassium proved hardest to model across most method combinations \u2014 establishing a non-destructive, real-time alternative to wet-chemistry testing for nutrient and disease monitoring." },
+      { id: "cea-4", domain: "cea", title: "Predicting Lettuce Quality from Leaf Region & Hyperspectral Data", team: "Mahmoud Alam Pranto", tagline: "Apex, middle, or base leaf \u2014 spectral fingerprints differ by zone.", image: "assets/gallery/new/cea-lab-monitoring.jpg", heroStat: null, stats: [{ value: "5", label: "Quality traits predicted" }, { value: "400\u20131000 nm", label: "Spectral range analyzed" }, { value: "$21.8B", label: "2022 US vegetable receipts (lettuce ~1/5)" }], methodology: "No prior HSI study had treated apex, middle, and base leaf regions as separate spectral inputs, despite their differing stomatal density and vein distribution. Tacitus romaine lettuce was grown across four hydroponic tank replicates and sampled weekly across growth stages (3\u20134 up to 10\u201315 true leaves); a Resonon Pika XC2 camera captured masked mean-reflectance spectra (350\u20131000 nm) per leaf zone, paired with handheld-meter ground truth for pH, EC, nitrate, calcium, and Brix to train regression/ANN models.", results: "Apex, middle, and base regions showed visibly distinct spectral characteristics and variance patterns, confirming that leaf zone matters for prediction accuracy \u2014 supporting a real-time, non-destructive monitoring framework that could replace hours-to-days wet-chemistry testing in commercial CEA operations, in a crop that made up nearly one-fifth of the $21.8 billion 2022 US vegetable and melon market." },
     ];
   }
   _pgmData() {
@@ -1850,6 +2230,16 @@ class Component extends DCLogic {
     this._logoCycleTimer = setInterval(() => {
       this.setState((s) => ({ logoCycleIndex: (s.logoCycleIndex + 1) % this.logoCycleFiles.length }));
     }, 400);
+    this._heroGalleryTimer = setInterval(() => {
+      if (this.state.activeTab === "Home" && this.state.heroMedia === "gallery") {
+        this.setState((s) => ({ heroGalleryIndex: s.heroGalleryIndex + 1 }));
+      }
+    }, 4000);
+    this._featHlTimer = setInterval(() => {
+      if (this.state.activeTab === "Gallery") {
+        this.setState((s) => ({ featHlIndex: s.featHlIndex + 1 }));
+      }
+    }, 5000);
     this._onResearchKey = (e) => this._researchModalKey(e);
     window.addEventListener("keydown", this._onResearchKey);
     if (this.state.activeTab === "News") this._startNewsLoop();
@@ -1896,6 +2286,8 @@ class Component extends DCLogic {
     window.removeEventListener("keydown", this._galKey);
     if (this._onWinMouse) window.removeEventListener("mousemove", this._onWinMouse);
     if (this._logoCycleTimer) clearInterval(this._logoCycleTimer);
+    if (this._heroGalleryTimer) clearInterval(this._heroGalleryTimer);
+    if (this._featHlTimer) clearInterval(this._featHlTimer);
     if (this._onResearchKey) window.removeEventListener("keydown", this._onResearchKey);
     if (this._t) clearTimeout(this._t);
     this._stopNewsLoop();
@@ -2699,16 +3091,100 @@ class Component extends DCLogic {
 
     const gallery = [
       { title: "Honeycomb Vibration Testbed", tag: "Pollinator Dynamics", url: "assets/gallery/honeycomb-vibration.jpg" },
-      { title: "Crop Canopy Drone Survey", tag: "Aerial Sensing", url: "assets/gallery/drone-survey-wide.jpg" },
+      { title: "Crop Canopy Drone Survey", tag: "Aerial Sensing", url: "assets/gallery/drone-survey-wide.jpg", feat: true },
       { title: "Field Rover at Homecoming", tag: "Autonomous Robotics", url: "assets/gallery/rover-parade-1.jpg" },
       { title: "Drone Payload Calibration", tag: "Aerial Sensing", url: "assets/gallery/drone-calibration.jpg" },
       { title: "Engine Dynamometer Testing", tag: "Powertrain Lab", url: "assets/gallery/engine-dyno-1.jpg" },
       { title: "Mobile Hive Imaging Lab", tag: "Pollinator Health", url: "assets/gallery/hive-imaging.jpg" },
       { title: "Modular Crop Rover", tag: "Autonomous Robotics", url: "assets/gallery/rover-parade-2.jpg" },
-      { title: "Multispectral Field Mapping", tag: "Aerial Sensing", url: "assets/gallery/drone-field-mapping.jpg" },
+      { title: "Multispectral Field Mapping", tag: "Aerial Sensing", url: "assets/gallery/drone-field-mapping.jpg", feat: true },
       { title: "Hydroponic CEA Monitoring", tag: "Agricultural IoT", url: "assets/gallery/hydroponic-monitoring.jpg" },
       { title: "Powertrain Instrumentation Review", tag: "Powertrain Lab", url: "assets/gallery/engine-dyno-2.jpg" },
       { title: "Honeycomb Frame Inspection", tag: "Pollinator Health", url: "assets/gallery/hive-inspection.jpg" },
+      { title: "Data Logging atop the Sugarbeet Pile", tag: "Postharvest Sensing", url: "assets/gallery/new/sugarbeet-pile-1.jpg", feat: true },
+      { title: "Sugarbeet Storage Pile Survey", tag: "Postharvest Sensing", url: "assets/gallery/new/sugarbeet-pile-2.jpg" },
+      { title: "Instrumenting the Beet Pile", tag: "Postharvest Sensing", url: "assets/gallery/new/sugarbeet-pile-3.jpg" },
+      { title: "Autonomous Nation 2025 Keynote", tag: "Outreach", url: "assets/gallery/new/flickr-1.jpg" },
+      { title: "Speaking at Autonomous Nation 2025", tag: "Outreach", url: "assets/gallery/new/flickr-2.jpg", feat: true },
+      { title: "Rover Field Demo Day", tag: "Autonomous Robotics", url: "assets/gallery/new/flickr-3.jpg", feat: true },
+      { title: "farm-ng Rover Walkthrough", tag: "Autonomous Robotics", url: "assets/gallery/new/flickr-4.jpg" },
+      { title: "CEA Conference Poster Session", tag: "Agricultural IoT", url: "assets/gallery/new/cea-poster-team.jpg" },
+      { title: "Hydroponic Rig in the Greenhouse", tag: "Agricultural IoT", url: "assets/gallery/new/cea-greenhouse.jpg" },
+      { title: "Live CEA Monitoring Dashboard", tag: "Agricultural IoT", url: "assets/gallery/new/cea-lab-monitoring.jpg" },
+      { title: "BeeVision Processing Pipeline", tag: "Pollinator Health", url: "assets/gallery/new/beevision-flowchart.jpg" },
+      { title: "Firmware Debugging Session", tag: "Lab Life", url: "assets/gallery/new/dsc-1.jpg" },
+      { title: "Assembling the Hydroponic Sensor Frame", tag: "Agricultural IoT", url: "assets/gallery/new/img-5353.jpg" },
+      { title: "Rover at the Homecoming Parade", tag: "Autonomous Robotics", url: "assets/gallery/new/rover-parade-3.jpg" },
+      { title: "Parade Rover on Campus Streets", tag: "Autonomous Robotics", url: "assets/gallery/new/rover-parade-4.jpg" },
+      { title: "Simulink Modeling Session", tag: "Lab Life", url: "assets/gallery/new/dsc-00006.jpg" },
+      { title: "Researching Compression Ignition", tag: "Powertrain Lab", url: "assets/gallery/new/dsc-00007.jpg" },
+      { title: "Advisor Dr. Sulaymon Eshkabilov", tag: "The Lab", url: "assets/gallery/new/dsc-00055.jpg" },
+      { title: "Slicing a Part for 3D Printing", tag: "Prototyping", url: "assets/gallery/new/dsc-00541.jpg" },
+      { title: "Reviewing the Weeding Tool CAD", tag: "Autonomous Robotics", url: "assets/gallery/new/dsc-00547.jpg" },
+      { title: "Diesel Engine Test Cell Team", tag: "Powertrain Lab", url: "assets/gallery/new/dsc-00617.jpg" },
+      { title: "Vibrometer Trained on the Hive", tag: "Pollinator Dynamics", url: "assets/gallery/new/dsc-00639.jpg" },
+      { title: "Observation Hive Field Session", tag: "Pollinator Dynamics", url: "assets/gallery/new/dsc-00681.jpg" },
+      { title: "Apiary Field Collaboration", tag: "Pollinator Health", url: "assets/gallery/new/dsc-00704.jpg" },
+      { title: "Honey Percentage Imaging Talk", tag: "Conferences", url: "assets/gallery/new/dsc-01092.jpg" },
+      { title: "Presenting at INTCEC 2025", tag: "Conferences", url: "assets/gallery/new/dsc-01101.jpg" },
+      { title: "Sugar Beet Sensing Methodology", tag: "Conferences", url: "assets/gallery/new/dsc-01106.jpg" },
+      { title: "INTCEC 2025, Chicago", tag: "Conferences", url: "assets/gallery/new/dsc-01113.jpg" },
+      { title: "Site-Specific Weeding System", tag: "Conferences", url: "assets/gallery/new/dsc-01331.jpg" },
+      { title: "Prescription Weed Map Talk", tag: "Conferences", url: "assets/gallery/new/dsc-01335.jpg" },
+      { title: "Lab at INTCEC 2025", tag: "The Lab", url: "assets/gallery/new/dsc-01371.jpg" },
+      { title: "Chicago Riverwalk", tag: "Team Life", url: "assets/gallery/new/dsc-01487.jpg" },
+      { title: "At the Bean, Millennium Park", tag: "Team Life", url: "assets/gallery/new/dsc-01522.jpg" },
+      { title: "Cloud Gate Reflections", tag: "Team Life", url: "assets/gallery/new/dsc-01527.jpg" },
+      { title: "Exploring Downtown Chicago", tag: "Team Life", url: "assets/gallery/new/dsc-01534.jpg" },
+      { title: "Honeybee Stress Sensor Defense", tag: "Milestones", url: "assets/gallery/new/dsc-01562.jpg" },
+      { title: "Congratulations at Ladd Hall", tag: "Milestones", url: "assets/gallery/new/dsc-01571.jpg" },
+      { title: "The Lab at the Bison Statue", tag: "The Lab", url: "assets/gallery/new/dsc-01752.jpg" },
+      { title: "Laser Vibrometer at the Apiary", tag: "Pollinator Dynamics", url: "assets/gallery/new/hive-vibrometer-outdoor.jpg" },
+      { title: "Vibrometer Trained on the Frame", tag: "Pollinator Dynamics", url: "assets/gallery/new/vibrometer-tripod-hive.jpg" },
+      { title: "Hive Shaker Excitation Test", tag: "Pollinator Dynamics", url: "assets/gallery/new/hive-shaker-1.jpg" },
+      { title: "VibroGo Shaker Bench Setup", tag: "Pollinator Dynamics", url: "assets/gallery/new/shaker-vibrogo.jpg" },
+      { title: "Honeybees on the Comb", tag: "Pollinator Dynamics", url: "assets/gallery/new/hive-comb-bees.jpg" },
+      { title: "Mobile Apiary Lab Trailer", tag: "Pollinator Dynamics", url: "assets/gallery/new/hive-lab-trailer-1.jpg" },
+      { title: "Instrumenting the Field Trailer", tag: "Pollinator Dynamics", url: "assets/gallery/new/hive-lab-trailer-2.jpg" },
+      { title: "Vibration Rig in the Trailer", tag: "Pollinator Dynamics", url: "assets/gallery/new/hive-lab-trailer-3.jpg" },
+      { title: "Hive Camera Rig Assembly", tag: "Pollinator Dynamics", url: "assets/gallery/new/hive-camera-rig.jpg" },
+      { title: "Documenting the Hive Setup", tag: "Pollinator Dynamics", url: "assets/gallery/new/hive-lab-photographing.jpg" },
+      { title: "Sensor Frame over the Hive", tag: "Pollinator Dynamics", url: "assets/gallery/new/hive-lab-agri-1.jpg" },
+      { title: "Tuning the Hive Sensor Array", tag: "Pollinator Dynamics", url: "assets/gallery/new/hive-lab-agri-2.jpg" },
+      { title: "Observation Hive Enclosure Rig", tag: "Pollinator Dynamics", url: "assets/gallery/new/hive-wooden-box-rig-1.jpg" },
+      { title: "Wooden Hive Test Enclosure", tag: "Pollinator Dynamics", url: "assets/gallery/new/hive-wooden-box-rig-2.jpg" },
+      { title: "Hive Frame Inspection", tag: "Pollinator Health", url: "assets/gallery/new/beekeeping-inspection.jpg" },
+      { title: "Printing a Sensor Funnel Mount", tag: "Prototyping", url: "assets/gallery/new/3d-print-funnel.jpg" },
+      { title: "Machining the Blower Nozzle", tag: "Prototyping", url: "assets/gallery/new/blower-nozzle.jpg" },
+      { title: "Building the Sensor Kit", tag: "Prototyping", url: "assets/gallery/new/q-dsc00564.jpg" },
+      { title: "On Stage at Autonomous Nation 2025", tag: "Outreach", url: "assets/gallery/new/an2025-stage-weeding.jpg" },
+      { title: "Autonomous Nation 2025 Keynote", tag: "Outreach", url: "assets/gallery/new/an2025-keynote-1.jpg" },
+      { title: "Addressing Autonomous Nation 2025", tag: "Outreach", url: "assets/gallery/new/an2025-keynote-2.jpg" },
+      { title: "Field Robot at the Homecoming Parade", tag: "Outreach", url: "assets/gallery/new/q-img7541.jpg" },
+      { title: "Parade with the Field Robot", tag: "Outreach", url: "assets/gallery/new/q-img7547.jpg" },
+      { title: "Field Robot Demo Day", tag: "Autonomous Robotics", url: "assets/gallery/new/an2025-field-robot.jpg" },
+      { title: "Live Rover Demonstration", tag: "Autonomous Robotics", url: "assets/gallery/new/field-demo-group-1.jpg" },
+      { title: "Field Demo with the Team", tag: "Autonomous Robotics", url: "assets/gallery/new/field-demo-group-2.jpg" },
+      { title: "Rover Walkthrough for Visitors", tag: "Autonomous Robotics", url: "assets/gallery/new/field-demo-pro.jpg" },
+      { title: "CEA Poster Session Trio", tag: "Agricultural IoT", url: "assets/gallery/new/cea-poster-trio.jpg" },
+      { title: "Greenhouse Imaging Camera", tag: "Agricultural IoT", url: "assets/gallery/new/cea-greenhouse-camera.jpg" },
+      { title: "CEA Monitoring Desk", tag: "Agricultural IoT", url: "assets/gallery/new/cea-desk-dashboard.jpg" },
+      { title: "Hydroponic Lettuce Sensing Rig", tag: "Agricultural IoT", url: "assets/gallery/new/q-img5339.jpg" },
+      { title: "Storage Climate Sensing Trailer", tag: "Postharvest Sensing", url: "assets/gallery/new/q-dsc00666.jpg" },
+      { title: "INTCEC 2025 Team Banner", tag: "Conferences", url: "assets/gallery/new/intcec-team-banner.jpg" },
+      { title: "Logging Data on the Beet Pile", tag: "Postharvest Sensing", url: "assets/gallery/new/beet-pile-laptop.jpg" },
+      { title: "Sugarbeet Storage Pile Panorama", tag: "Postharvest Sensing", url: "assets/gallery/new/beet-pile-wide.jpg" },
+      { title: "Honeybee Vibration Talk", tag: "Conferences", url: "assets/gallery/new/q-dsc01339.jpg" },
+      { title: "Bench Testing with the Team", tag: "Lab Life", url: "assets/gallery/new/q-dsc00005.jpg" },
+      { title: "Powertrain Test Cell Walkthrough", tag: "Powertrain Lab", url: "assets/gallery/new/q-dsc00606.jpg" },
+      { title: "At the Workstation", tag: "The Lab", url: "assets/gallery/new/q-dsc00056.jpg" },
+      { title: "Focused Modeling Session", tag: "The Lab", url: "assets/gallery/new/q-dsc01120.jpg" },
+      { title: "Research Faculty Portrait", tag: "The Lab", url: "assets/gallery/new/q-dsc01135.jpg" },
+      { title: "Team Portrait", tag: "The Lab", url: "assets/gallery/new/q-dsc01417.jpg" },
+      { title: "Researcher Portrait", tag: "The Lab", url: "assets/gallery/new/q-dsc01422.jpg" },
+      { title: "Downtown Chicago", tag: "Team Life", url: "assets/gallery/new/q-dsc01394.jpg" },
+      { title: "Exploring the City", tag: "Team Life", url: "assets/gallery/new/q-dsc01400.jpg" },
+      { title: "At Cloud Gate", tag: "Team Life", url: "assets/gallery/new/q-dsc01537.jpg" },
     ];
     this._galItems = gallery;
 
@@ -2788,7 +3264,7 @@ class Component extends DCLogic {
     ];
     const collaborators = [
       { name: "Canon Virginia Inc.", logo: "assets/canon.png", url: "https://www.cvi.canon.com/", note: "Advanced Imaging & Manufacturing R&D" },
-      { name: "Purdue University", logo: "assets/purdue-light.svg", invert: true, h: 54, mw: 330, url: "https://www.purdue.edu/", note: "Academic Research Partner" },
+      { name: "Purdue University", logo: "assets/purdue-light.png", invert: true, h: 54, mw: 330, url: "https://www.purdue.edu/", note: "Academic Research Partner" },
       { name: "BWR Innovations", logo: "assets/bwr.png", big: true, url: "https://bwr-innovations.com/", note: "Hydrogen & Energy Systems" },
       { name: "NDAAE", logo: "assets/ndaae.png", url: "https://www.ndaae.org/", note: "ND Assoc. of Agricultural Educators" },
       { name: "ND Clean Cities", logo: "assets/cleancities.jpeg", h: 96, url: "https://cleancities.energy.gov/coalitions/north-dakota", note: "Clean Energy Transportation Coalition" },
@@ -2823,6 +3299,23 @@ class Component extends DCLogic {
 
     const lbList = gallery.map((g) => ({ src: g.url, title: g.title }));
     const galleryCards = gallery.map((g, i) => ({ url: g.url, title: g.title, tag: g.tag, onOpen: () => { if (this._galDragged) { this._galDragged = false; return; } this.openLightbox(lbList, i); } }));
+    const featBase = gallery.map((g, i) => Object.assign({}, g, { idx: i })).filter((g) => g.feat);
+    const featAcc = "#a855f7";
+    const featHl = featBase.length ? this.state.featHlIndex % featBase.length : 0;
+    const featOrdered = featBase.length ? [featBase[featHl]].concat(featBase.filter((_, k) => k !== featHl)) : [];
+    const featuredCards = featOrdered.map((g, pos) => ({
+      url: g.url, title: g.title, tag: g.tag,
+      isHl: pos === 0,
+      hlKey: "hl-" + g.idx,
+      badgeAcc: "background:" + featAcc + ";box-shadow:0 0 8px " + featAcc,
+      progStyle: "height:100%;border-radius:9999px;background:" + featAcc + ";box-shadow:0 0 6px " + featAcc + ";width:0;animation:featProg 5s linear forwards",
+      onOpen: () => this.openLightbox(lbList, g.idx),
+    }));
+    const heroGallery = featBase.map((g) => ({ url: g.url, title: g.title, idx: g.idx }));
+    const heroGalleryIdx = this.state.heroGalleryIndex % (heroGallery.length || 1);
+    const heroGallerySrc = heroGallery.length ? heroGallery[heroGalleryIdx].url : "";
+    const heroGalleryTitle = heroGallery.length ? heroGallery[heroGalleryIdx].title : "";
+    const heroGalleryDots = heroGallery.map((g, i) => ({ dotStyle: "width:" + (i === heroGalleryIdx ? "22px" : "7px") + ";height:7px;border-radius:9999px;transition:all .4s cubic-bezier(.16,1,.3,1);cursor:pointer;background:" + (i === heroGalleryIdx ? "#fff" : "rgba(255,255,255,.32)"), onDot: () => this.setState({ heroGalleryIndex: i }) }));
     const bentoShapes = [[2,2],[2,1],[1,2],[1,1],[1,1],[2,1],[1,2],[1,1],[2,2],[1,1],[2,1]];
     const bentoCards = gallery.map((g, i) => {
       const shape = bentoShapes[i % bentoShapes.length];
@@ -2894,6 +3387,7 @@ class Component extends DCLogic {
       onHeroVideo1: () => this.setHeroMedia("video1"),
       onHeroVideo2: () => this.setHeroMedia("video2"),
       heroTabLogoStyle: this._heroTabStyle(this.state.heroMedia === "logo"),
+      heroTabGalleryStyle: this._heroTabStyle(this.state.heroMedia === "gallery"),
       heroTabVideo1Style: this._heroTabStyle(this.state.heroMedia === "video1"),
       heroTabVideo2Style: this._heroTabStyle(this.state.heroMedia === "video2"),
       allLogos,
@@ -2928,6 +3422,12 @@ class Component extends DCLogic {
       news,
       gallery,
       galleryCards,
+      featuredCards,
+      heroGallerySrc,
+      heroGalleryTitle,
+      heroGalleryDots,
+      isHeroGallery: this.state.heroMedia === "gallery",
+      onHeroGallery: () => this.setHeroMedia("gallery"),
       bentoCards,
       galleryTotal: gallery.length,
       lightboxOpen: !!this.state.lightbox,
@@ -2965,6 +3465,19 @@ class Component extends DCLogic {
       onSubmit: (e) => this.submit(e),
       containerRef: this.containerRef,
       cineProjects: this._cineData(),
+      footerYear: new Date().getFullYear(),
+      onFooterCollab: () => this.setTab("Collaboration"),
+      footerNav: [
+        { label: "Overview", tab: "Home" },
+        { label: "Research", tab: "Research" },
+        { label: "Research Team", tab: "Research Team" },
+        { label: "Publications", tab: "Publications" },
+        { label: "News", tab: "News" },
+        { label: "Collaboration", tab: "Collaboration" },
+        { label: "Gallery", tab: "Gallery" },
+        { label: "Join Our Lab", tab: "Join Our LAB" },
+        { label: "Contact Us", tab: "Contact Us" },
+      ].map((f) => ({ label: f.label, onClick: () => this.setTab(f.tab) })),
       cineWrapR: this.cineWrapR,
       cineRootR: this.cineRootR,
       cineWorldR: this.cineWorldR,

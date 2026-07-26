@@ -1,6 +1,0 @@
-{
-  "name": "Cinematic Space Travel",
-  "description": "A cinematic space-travel landing page featuring high-performance looping background videos with custom crossfades, a shared liquid-glass design system, and responsive layout animations.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
