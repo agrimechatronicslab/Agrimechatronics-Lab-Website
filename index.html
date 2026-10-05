@@ -642,7 +642,7 @@ nav .pill-scroll::-webkit-scrollbar{display:none}
   .pill-scroll button{padding:7px 11px!important;font-size:11px!important}
   .hero-sub{font-size:17px!important}
   .hero-tabs button{padding:8px 14px!important;font-size:12px!important}
-  .mq-img{width:270px!important;height:176px!important}
+  .mq-img{width:189px!important;height:123px!important}
   .mq-fade{width:56px!important}
   .ticker-logos{gap:26px!important;padding-right:26px!important}
   .ticker-logos img{height:42px!important;max-width:150px!important}
@@ -908,14 +908,14 @@ main [data-screen-label]{min-width:0;max-width:100%}
           <div style="display:flex;overflow:hidden;gap:12px">
             <div ref="{{ marqueeRow1Ref }}" style="display:flex;gap:12px;flex:none;will-change:transform">
               <sc-for list="{{ marqueeRow1 }}" as="img" hint-placeholder-count="11">
-                <img class="mq-img" src="{{ img.src }}" onClick="{{ img.onOpen }}" loading="lazy" referrerpolicy="no-referrer" alt="" style="width:420px;height:270px;flex:none;border-radius:16px;object-fit:cover;background:#161616;cursor:zoom-in" />
+                <img class="mq-img" src="{{ img.src }}" onClick="{{ img.onOpen }}" loading="lazy" referrerpolicy="no-referrer" alt="" style="width:294px;height:189px;flex:none;border-radius:14px;object-fit:cover;background:#161616;cursor:zoom-in" />
               </sc-for>
             </div>
           </div>
           <div style="display:flex;overflow:hidden;gap:12px">
             <div ref="{{ marqueeRow2Ref }}" style="display:flex;gap:12px;flex:none;will-change:transform">
               <sc-for list="{{ marqueeRow2 }}" as="img" hint-placeholder-count="11">
-                <img class="mq-img" src="{{ img.src }}" onClick="{{ img.onOpen }}" loading="lazy" referrerpolicy="no-referrer" alt="" style="width:420px;height:270px;flex:none;border-radius:16px;object-fit:cover;background:#161616;cursor:zoom-in" />
+                <img class="mq-img" src="{{ img.src }}" onClick="{{ img.onOpen }}" loading="lazy" referrerpolicy="no-referrer" alt="" style="width:294px;height:189px;flex:none;border-radius:14px;object-fit:cover;background:#161616;cursor:zoom-in" />
               </sc-for>
             </div>
           </div>
@@ -1363,7 +1363,6 @@ main [data-screen-label]{min-width:0;max-width:100%}
               <img src="assets/dr-eshkabilov-2026.png" alt="Dr. Sulaymon Eshkabilov" referrerpolicy="no-referrer" style="position:absolute;inset:0;width:100%;height:100%;display:block;object-fit:cover" />
             </div>
             <div style="padding:22px 24px 26px;display:flex;flex-direction:column;gap:8px">
-              <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.2em;color:var(--accent,#a855f7);font-family:ui-monospace,monospace">Lab Director</span>
               <h2 style="font-family:'Instrument Serif',serif;font-style:italic;font-size:28px;line-height:1.08;color:#fff;margin:0">Dr. Sulaymon Eshkabilov</h2>
               <p style="font-size:13px;color:rgba(255,255,255,.75);font-weight:400;margin:0;line-height:1.5">Assistant Professor · Agricultural &amp; Biosystems Engineering<br />North Dakota State University</p>
               <a href="mailto:sulaymon.eshkabilov@ndsu.edu" style="margin-top:6px;align-self:flex-start;display:inline-flex;align-items:center;gap:8px;text-decoration:none;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);color:#fff;font-size:12px;font-weight:600;padding:9px 16px;border-radius:9999px" style-hover="background:#ffffff;color:#000000">
@@ -2353,7 +2352,7 @@ class Component extends DCLogic {
   }
 
   _researchDomainLabel(key) {
-    const map = { bees: "Honeybees & Pollinator Health", machinery: "Farm Machinery & Engines", robotics: "Robotics & Autonomous Systems", cea: "Controlled-Environment Agriculture" };
+    const map = { bees: "Honeybees & Pollinator Health", machinery: "Farm Machinery & Engines", robotics: "Robotics & Autonomous Systems", cea: "Controlled-Environment Agriculture", sugarbeet: "Sugar Beet Decomposition" };
     return map[key] || key;
   }
 
@@ -2474,10 +2473,10 @@ class Component extends DCLogic {
       { id: "rob-4", domain: "robotics", title: "Drone Precision Landing System", team: "Md. Ibne Joha", tagline: "Vision-guided autonomous landing accurate to centimeters.", image: null, gallery: [
       ], heroStat: "8.78 cm", stats: [{ value: "8.78 cm", label: "Horizontal landing error" }, { value: "9.09 m", label: "Peak flight altitude" }, { value: "48.4 s", label: "Total flight time" }], methodology: "A Landmark precision-landing camera was integrated into the IF800 UAV's landing gear (via a converter module and damping kit) to detect a fiducial ground marker. Indoor validation used stacked boxes at measured heights to verify camera detection, while outdoor flights used a portable landing pad with telemetry monitored live in Mission Planner; MATLAB then reconstructs 3D flight trajectories from logged EKF (XKF1) data for landing-error analysis.", results: "A validated flight climbed to a peak altitude of 9.09 m, executed a search/approach maneuver, and landed with just 8.78 cm horizontal error (0.4437 m total 3D error) \u2014 rated \u2018Excellent\u2019 (under 10 cm) \u2014 across a 48.4-second flight sampled at 24.8 Hz (1,204 data points), reaching max 3D speed of 3.33 m/s." },
 
-      { id: "cea-1", domain: "cea", title: "Wireless Sensing for Sugar Beet Storage", team: "Bakht Alam Khan", tagline: "Catching rot before it spreads through a stored beet pile.", image: "assets/gallery/new/sugarbeet-pile-2.jpg", heroStat: null, stats: [{ value: "6", label: "Custom LoRa sensor PCBs" }, { value: "~1 month", label: "Continuous test duration" }], methodology: "Targeting gas (VOC/ethanol), atmospheric (CO\u2082 respiration), and conditioning (temperature/humidity) sensing, six custom PCBs \u2014 each combining a CO\u2082 sensor, temperature/humidity sensing, and a LoRa (RYLR998) radio \u2014 were split three-and-three between 4\u00b0C and room-temperature storage, sealed alongside real beets in non-ventilated buckets to mimic field-pile conditions, each transmitting for 30 seconds then sleeping 30 minutes to avoid collisions.", results: "Room-temperature boxes climbed to 80\u201390% humidity, spiked in VOC/ethanol signal, and approached the CO\u2082 sensor's ~40,000 ppm ceiling within about a month, with visibly more rot (one box failed from condensation); 4\u00b0C boxes stayed near saturation humidity with lower ethanol buildup and visibly healthier beets \u2014 pointing toward refrigerated storage, moisture-protected PCBs, and a higher-range CO\u2082 sensor as next steps." },
       { id: "cea-2", domain: "cea", title: "Controlled Environment Agriculture in North Dakota", team: "Shafi Md. Istiak", tagline: "A full sensor-to-dashboard hydroponic growing system for year-round lettuce.", image: "assets/gallery/hydroponic-monitoring.jpg", heroStat: null, stats: [{ value: "9", label: "Monitoring units" }, { value: "6", label: "ML-classified growth levels" }], methodology: "With global population projected at 9.7 billion by 2050 and ~4 million hectares of farmland lost to development annually, the project builds a distributed sensor network: Arduino Uno R4 boards publish EC, pH, dissolved oxygen, and temperature (DS18B20) plus environmental readings (DHT22, SCD30 CO\u2082, BH1750 light) over MQTT to a Raspberry Pi 5 broker/edge hub with an AI camera, across nine monitoring units fed by three dosing pumps delivering concentrations from 0 to 400 ppm.", results: "pH fell from about 8.7 at 0 ppm to roughly 5\u20136 at higher concentrations while EC rose from ~500 to over 2000 \u00b5S/cm, both tracking daily temperature cycles. A Gaussian Mixture Model (visualized via PCA) now clusters plant images into 6 qualitative growth levels, from healthy full heads to stunted, stressed plants, to inform automated nutrient dosing based on temperature, EC, and pH." },
       { id: "cea-3", domain: "cea", title: "Hyperspectral Imaging for Lettuce Nutrient & Disease Monitoring", team: "Farhin Faiza Neha", tagline: "Reading a leaf\u2019s chemistry from reflected light \u2014 no lab chemistry required.", image: "assets/gallery/new/cea-greenhouse.jpg", heroStat: "0.85\u20130.89 r", stats: [{ value: "0.85\u20130.89", label: "Best trait correlation (r)" }, { value: "7", label: "Regression models benchmarked" }, { value: "4", label: "Feature-selection methods compared" }], methodology: "A Resonon Pika XC2 hyperspectral camera on a motorized stage scans lettuce leaves, roots (via K-means background separation), and whole plants \u2014 including plants irrigated with egg-washing wastewater, addressing the food-safety risk of wastewater reuse on leafy greens \u2014 with spectra cross-checked against USDA and Purdue datasets. A companion benchmarking study pairs four feature-selection methods (FDR, CARS, GA, VIP) with seven regression models (PLSR, ANN, SVR, RF, XGBoost, LightGBM, CatBoost) predicting traits like SPAD, sugars, dry matter, vitamin C, and micronutrients.", results: "SPAD and beta-carotene were predicted most reliably (r up to ~0.85\u20130.89 with the best NRMSE), while potassium proved hardest to model across most method combinations \u2014 establishing a non-destructive, real-time alternative to wet-chemistry testing for nutrient and disease monitoring." },
       { id: "cea-4", domain: "cea", title: "Predicting Lettuce Quality from Leaf Region & Hyperspectral Data", team: "Mahmoud Alam Pranto", tagline: "Apex, middle, or base leaf \u2014 spectral fingerprints differ by zone.", image: "assets/gallery/new/cea-lab-monitoring.jpg", heroStat: null, stats: [{ value: "5", label: "Quality traits predicted" }, { value: "400\u20131000 nm", label: "Spectral range analyzed" }, { value: "$21.8B", label: "2022 US vegetable receipts (lettuce ~1/5)" }], methodology: "No prior HSI study had treated apex, middle, and base leaf regions as separate spectral inputs, despite their differing stomatal density and vein distribution. Tacitus romaine lettuce was grown across four hydroponic tank replicates and sampled weekly across growth stages (3\u20134 up to 10\u201315 true leaves); a Resonon Pika XC2 camera captured masked mean-reflectance spectra (350\u20131000 nm) per leaf zone, paired with handheld-meter ground truth for pH, EC, nitrate, calcium, and Brix to train regression/ANN models.", results: "Apex, middle, and base regions showed visibly distinct spectral characteristics and variance patterns, confirming that leaf zone matters for prediction accuracy \u2014 supporting a real-time, non-destructive monitoring framework that could replace hours-to-days wet-chemistry testing in commercial CEA operations, in a crop that made up nearly one-fifth of the $21.8 billion 2022 US vegetable and melon market." },
+      { id: "sb-1", domain: "sugarbeet", title: "Wireless Sensing for Sugar Beet Storage", team: "Bakht Alam Khan", tagline: "Catching rot before it spreads through a stored beet pile.", image: "assets/gallery/new/sugarbeet-pile-2.jpg", heroStat: null, stats: [{ value: "6", label: "Custom LoRa sensor PCBs" }, { value: "~1 month", label: "Continuous test duration" }], methodology: "Targeting gas (VOC/ethanol), atmospheric (CO\u2082 respiration), and conditioning (temperature/humidity) sensing, six custom PCBs \u2014 each combining a CO\u2082 sensor, temperature/humidity sensing, and a LoRa (RYLR998) radio \u2014 were split three-and-three between 4\u00b0C and room-temperature storage, sealed alongside real beets in non-ventilated buckets to mimic field-pile conditions, each transmitting for 30 seconds then sleeping 30 minutes to avoid collisions.", results: "Room-temperature boxes climbed to 80\u201390% humidity, spiked in VOC/ethanol signal, and approached the CO\u2082 sensor's ~40,000 ppm ceiling within about a month, with visibly more rot (one box failed from condensation); 4\u00b0C boxes stayed near saturation humidity with lower ethanol buildup and visibly healthier beets \u2014 pointing toward refrigerated storage, moisture-protected PCBs, and a higher-range CO\u2082 sensor as next steps." },
     ];
   }
   _pgmData() {
@@ -2655,7 +2654,7 @@ class Component extends DCLogic {
     if (this.state.activeTab === "News") this._startNewsLoop();
     if (this.state.activeTab === "Gallery") requestAnimationFrame(() => this._galMount());
     this._cineWatchId = setInterval(() => this._cineWatch(), 120);
-    this._researchDomainKeys = ["bees", "machinery", "robotics", "cea"];
+    this._researchDomainKeys = ["bees", "machinery", "robotics", "cea", "sugarbeet"];
     this._researchHlIds = {};
     this._researchSlideIds = {};
     this._researchDomainKeys.forEach((key, di) => {
@@ -2823,7 +2822,7 @@ class Component extends DCLogic {
 
   onResearchFilter(key) { this.setState({ researchFilter: key }); }
   _scrollToResearchSection(idx) {
-    const keys = ["bees", "machinery", "robotics", "cea"];
+    const keys = ["bees", "machinery", "robotics", "cea", "sugarbeet"];
     const el = this._researchSecEls && this._researchSecEls[keys[idx]];
     if (!el) return;
     const target = Math.max(0, el.getBoundingClientRect().top + window.pageYOffset - 90);
@@ -3050,7 +3049,8 @@ class Component extends DCLogic {
       { key: "bees", num: "01", title: "Honeybees & Pollinator Health", desc: "Vibration, thermal, acoustic, and radar sensing \u2014 reading colony health without ever cracking the hive open.", accent: "#c084fc" },
       { key: "machinery", num: "02", title: "Farm Machinery & Engines", desc: "Dynamometer test cells, AI-ready engine datasets, and the economics of clean-energy farm power.", accent: "#f59e0b" },
       { key: "robotics", num: "03", title: "Robotics & Autonomous Systems", desc: "Field UGVs, site-specific mechanical weeding, precision drone landing, and competition-grade soil sampling.", accent: "#22d3ee" },
-      { key: "cea", num: "04", title: "Controlled-Environment Agriculture", desc: "Hydroponics, hyperspectral leaf chemistry, and wireless post-harvest storage sensing.", accent: "#34d399" },
+      { key: "cea", num: "04", title: "Controlled-Environment Agriculture", desc: "Hydroponics, hyperspectral leaf chemistry, and Edge AI for year-round indoor growing.", accent: "#34d399" },
+      { key: "sugarbeet", num: "05", title: "Sugar Beet Decomposition", desc: "Wireless sensing, VOC fingerprints, and IoT monitoring to catch rot early in stored beet piles.", accent: "#f472b6" },
     ];
     const researchNavPills = researchDomainDefs.map((d, di) => ({
       key: d.key,
@@ -3344,9 +3344,9 @@ class Component extends DCLogic {
       { group: "other", name: "Landen Krause", role: "Undergraduate Student", bio: "Undergraduate researcher in the AgriMechatronics Lab.", image: "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20220%20340%22%3E%3Crect%20width%3D%22220%22%20height%3D%22340%22%20fill%3D%22%230d1512%22%2F%3E%3Ctext%20x%3D%22110%22%20y%3D%22190%22%20text-anchor%3D%22middle%22%20font-family%3D%22Georgia%2Cserif%22%20font-style%3D%22italic%22%20font-size%3D%2264%22%20fill%3D%22%236ff2a0%22%3ELK%3C%2Ftext%3E%3C%2Fsvg%3E" },
       { group: "other", name: "Jewel Woodcock", role: "Undergraduate Student", bio: "Registered Nurse from St. Clair, Missouri. Received her RN from East Central College and is currently enrolled at NDSU to receive her BSN. Driven by a passion for learning and hands-on experience with honey bees.", image: "assets/team-jewel.png", email: "jewel.woodcock@ndsu.edu" },
       { group: "other", name: "Luke Bourdeaux", role: "Undergraduate Student", bio: "Undergraduate student majoring in Mechanical Engineering, interested in engine technology and heavy equipment design. Currently researching diesel engines.", image: "assets/team-luke.png", email: "luke.bourdeaux@ndsu.edu" },
-      { group: "other", name: "Tyan Onolee", role: "Undergraduate Student", bio: "Undergraduate researcher in the AgriMechatronics Lab.", image: "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20220%20340%22%3E%3Crect%20width%3D%22220%22%20height%3D%22340%22%20fill%3D%22%230d1512%22%2F%3E%3Ctext%20x%3D%22110%22%20y%3D%22190%22%20text-anchor%3D%22middle%22%20font-family%3D%22Georgia%2Cserif%22%20font-style%3D%22italic%22%20font-size%3D%2264%22%20fill%3D%22%236ff2a0%22%3ETO%3C%2Ftext%3E%3C%2Fsvg%3E" },
-      { group: "other", name: "Artin Fahbergi", role: "Undergraduate Student", bio: "Undergraduate researcher in the AgriMechatronics Lab.", image: "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20220%20340%22%3E%3Crect%20width%3D%22220%22%20height%3D%22340%22%20fill%3D%22%230d1512%22%2F%3E%3Ctext%20x%3D%22110%22%20y%3D%22190%22%20text-anchor%3D%22middle%22%20font-family%3D%22Georgia%2Cserif%22%20font-style%3D%22italic%22%20font-size%3D%2264%22%20fill%3D%22%236ff2a0%22%3EAF%3C%2Ftext%3E%3C%2Fsvg%3E" },
-      { group: "other", name: "Daniella Fajardo", role: "Undergraduate Student", bio: "Undergraduate researcher in the AgriMechatronics Lab.", image: "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20220%20340%22%3E%3Crect%20width%3D%22220%22%20height%3D%22340%22%20fill%3D%22%230d1512%22%2F%3E%3Ctext%20x%3D%22110%22%20y%3D%22190%22%20text-anchor%3D%22middle%22%20font-family%3D%22Georgia%2Cserif%22%20font-style%3D%22italic%22%20font-size%3D%2264%22%20fill%3D%22%236ff2a0%22%3EDF%3C%2Ftext%3E%3C%2Fsvg%3E" },
+      { group: "other", name: "Tyan Nordstrom", role: "Undergraduate Student", bio: "From Edmonton, Canada, pursuing an undergraduate degree in Natural Resource Management. Interested in honeybee survival and hive success under stressful conditions; outside the lab, enjoys fishing, camping, rock climbing, and birding.", image: "https://lh7-us.googleusercontent.com/sitesv-images-rt/AMxu72tJee-7nlUblhbdXL8ecTLFvDqZpLQT74W130R8iZHBlvHNw6p0_K6YGvCm5PXTMm1qzhk-Pgf0Q0WKPqDvLhjEPoPJJFoiVEyZau9-grxZzFO5t4hL5VWarZrI_zouEKACyQfPQPfHUhykkimjxSKIIvkiKr_gxr1MoHR_ZNvvIHykBu8Qdm4jn_xxCpuVK2ZHiXC3aVmzy-F-5_BpM7F0hVUKQ9jnmy14jnDq=w600" },
+      { group: "other", name: "Artin Fahbergi", role: "Undergraduate Student", bio: "From Tehran, Iran; a sophomore at NDSU majoring in Electrical Engineering. Interested in solar power and other renewable energy, and exploring how electrical engineering can advance the field. In his free time, he enjoys game development, combining his interests in coding, drawing, and sound design.", image: "assets/team-artin.jpg" },
+      { group: "other", name: "Joanna Daniella Fajardo", role: "Undergraduate Student", bio: "Undergraduate majoring in Agricultural Technology with a minor in Artificial Intelligence. Designing and testing a wireless sensor network to monitor beehive conditions, with interests in machine learning and computer vision for agriculture, GIS mapping, IoT, and robotics.", image: "assets/team-daniella.png" },
     ];
     const CARD_H = 340;
     const decorateMember = (m) => {
@@ -3563,6 +3563,41 @@ class Component extends DCLogic {
     ];
 
     const gallery = [
+      { title: "Field Check on the Weeding Robot", tag: "Robotics", url: "assets/gallery/home/home-09.jpg" },
+      { title: "Sensing atop a Massive Sugar Beet Pile", tag: "Sugar Beet", url: "assets/gallery/home/home-10.jpg" },
+      { title: "Edge-AI Hydroponic Rig with ThingSpeak Dashboard", tag: "CEA", url: "assets/gallery/home/home-11.jpg" },
+      { title: "Explaining the Robot to Visitors in the Field", tag: "Autonomous Nation", url: "assets/gallery/home/home-12.jpg" },
+      { title: "AgriMechatronics Team at the NDSU Bison", tag: "Team", url: "assets/gallery/home/home-01.jpg" },
+      { title: "Dr. Eshkabilov Speaking at Autonomous Nation 2025", tag: "Autonomous Nation", url: "assets/gallery/home/home-02.jpg" },
+      { title: "Running the VibroScan QTec Beside a Live Hive", tag: "NSF-MRI", url: "assets/gallery/home/home-03.jpg" },
+      { title: "Team Gathered Around the Observation Hive", tag: "NSF-MRI", url: "assets/gallery/home/home-04.jpg" },
+      { title: "Laser Vibrometer & Shaker Rig on a Bee Colony", tag: "Pollinator Dynamics", url: "assets/gallery/home/home-05.jpg" },
+      { title: "Edge-AI Camera over Hydroponic Lettuce", tag: "CEA", url: "assets/gallery/home/home-06.jpg" },
+      { title: "Dr. Eshkabilov on Campus", tag: "Team", url: "assets/gallery/home/home-07.jpg" },
+      { title: "Logging Data atop a Sugar Beet Pile", tag: "Sugar Beet", url: "assets/gallery/home/home-08.jpg" },
+      { title: "AgriMechatronics Team at the Bison Statue", tag: "Team", url: "assets/gallery/sep26/bison-4.jpg", feat: true },
+      { title: "Lab Group Photo at NDSU", tag: "Team", url: "assets/gallery/sep26/bison-1.jpg" },
+      { title: "Lab Group Photo — Bison Statue", tag: "Team", url: "assets/gallery/sep26/bison-2.jpg" },
+      { title: "The Full Team on Campus", tag: "Team", url: "assets/gallery/sep26/bison-3.jpg" },
+      { title: "Team Photo with the Bison", tag: "Team", url: "assets/gallery/sep26/bison-5.jpg" },
+      { title: "Lab Members at the NDSU Bison", tag: "Team", url: "assets/gallery/sep26/bison-6.jpg" },
+      { title: "Live Bee Colony Under the QTec Scanner", tag: "NSF-MRI", url: "assets/gallery/sep26/qtec-04.jpg", feat: true },
+      { title: "QTec Setup with the Observation Hive", tag: "NSF-MRI", url: "assets/gallery/sep26/qtec-03.jpg" },
+      { title: "Acquiring 3D Vibration Data", tag: "NSF-MRI", url: "assets/gallery/sep26/qtec-05.jpg" },
+      { title: "QTec Data Acquisition Station", tag: "NSF-MRI", url: "assets/gallery/sep26/qtec-06.jpg" },
+      { title: "Polytec Engineers Lead the Training", tag: "NSF-MRI", url: "assets/gallery/sep26/qtec-07.jpg" },
+      { title: "Hands-on QTec Training Session", tag: "NSF-MRI", url: "assets/gallery/sep26/qtec-08.jpg" },
+      { title: "QTec Scanning Heads on the Hive", tag: "NSF-MRI", url: "assets/gallery/sep26/qtec-09.jpg" },
+      { title: "Students Operating the QTec System", tag: "NSF-MRI", url: "assets/gallery/sep26/qtec-10.jpg" },
+      { title: "QTec Training in the Mechatronics Lab", tag: "NSF-MRI", url: "assets/gallery/sep26/qtec-11.jpg" },
+      { title: "Interdisciplinary QTec Workshop", tag: "NSF-MRI", url: "assets/gallery/sep26/qtec-12.jpg" },
+      { title: "QTec Training Participants", tag: "NSF-MRI", url: "assets/gallery/sep26/qtec-13.jpg" },
+      { title: "QTec Vibrometer Unboxed", tag: "NSF-MRI", url: "assets/gallery/sep26/qtec-01.jpg" },
+      { title: "The New PSV QTec System", tag: "NSF-MRI", url: "assets/gallery/sep26/qtec-02.jpg" },
+      { title: "Field UGV on Campus", tag: "Robotics", url: "assets/gallery/sep26/ugv-tree-1.jpg", feat: true },
+      { title: "UGV with Its Operator", tag: "Robotics", url: "assets/gallery/sep26/ugv-tree-2.jpg" },
+      { title: "UGV and John Deere Tractor at Homecoming", tag: "Bison Parade", url: "assets/gallery/sep26/parade-08.jpg" },
+      { title: "Campus Portrait", tag: "Team", url: "assets/gallery/sep26/campus-portrait.jpg" },
       { title: "3D Vibrometry on a Live Honey Bee Colony", tag: "NSF-MRI", url: "assets/gallery/news/qtec-bees.jpg", feat: true },
       { title: "QTec 3D Laser Vibrometer Training", tag: "NSF-MRI", url: "assets/gallery/news/qtec-training.jpg" },
       { title: "QTec System Alignment Demo", tag: "NSF-MRI", url: "assets/gallery/news/qtec-demo.jpg" },
@@ -3863,8 +3898,21 @@ class Component extends DCLogic {
       };
     });
     const labCards = gallery.map((g, i) => ({ src: g.url, onOpen: () => this.openLightbox(lbList, i) }));
-    const row1Imgs = labCards;
-    const row2Imgs = labCards.slice().reverse();
+    const bestOf = (urls) => urls.map((u) => gallery.findIndex((g) => g.url === u)).filter((i) => i >= 0).map((i) => labCards[i]);
+    const row1Imgs = bestOf([
+      "assets/gallery/home/home-01.jpg",
+      "assets/gallery/home/home-03.jpg",
+      "assets/gallery/home/home-06.jpg",
+      "assets/gallery/home/home-09.jpg",
+      "assets/gallery/home/home-10.jpg",
+    ]);
+    const row2Imgs = bestOf([
+      "assets/gallery/home/home-02.jpg",
+      "assets/gallery/home/home-05.jpg",
+      "assets/gallery/home/home-04.jpg",
+      "assets/gallery/home/home-07.jpg",
+      "assets/gallery/home/home-12.jpg",
+    ]);
     const marqueeRow1 = [...row1Imgs, ...row1Imgs, ...row1Imgs];
     const marqueeRow2 = [...row2Imgs, ...row2Imgs, ...row2Imgs];
 
